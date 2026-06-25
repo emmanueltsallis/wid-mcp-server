@@ -2,7 +2,23 @@
 
 Unofficial local MCP server for live [World Inequality Database](https://wid.world/) queries.
 
-This server does **not** bundle or redistribute the WID dataset. It is a small adapter that calls WID's live data service, normalizes the result, and returns structured data to an MCP client.
+This server does **not** bundle or redistribute the WID dataset. It is a small adapter that asks WID for current data and returns structured rows to an MCP client.
+
+## Why This Works Without Bundling Data
+
+By default, the server uses the official WID R package:
+
+```text
+AI client -> this MCP -> local R package `wid` -> WID data
+```
+
+That keeps this repo clean:
+
+- No WID dataset is committed.
+- No WID internal credential is committed.
+- Users get the same public access path exposed by the official R package.
+
+If you have a WID API credential, the server can also use direct API mode.
 
 ## Example
 
@@ -24,8 +40,7 @@ The server maps that to:
 
 - Country: `Brazil` -> `BR`
 - Metric: `wealth_income_ratio` -> `wnweal_p0p100_999_i`
-- Source: WID live data service
-- Output: clean rows with year, value, unit, and extrapolation flag
+- Output: clean rows with year, value, unit when available, and extrapolation flag when available
 
 ## Tools
 
@@ -37,22 +52,52 @@ The server maps that to:
 
 ## Setup
 
+Install Node dependencies and build:
+
 ```bash
 npm install
 npm run build
 ```
 
-WID's live service may require an API credential. Keep credentials in your MCP client environment, never in source code:
+Install the official WID R package:
+
+```r
+install.packages("wid")
+```
+
+The default backend is `auto`:
+
+- If `WID_API_KEY_BASE64` or `WID_API_KEY_HEX` is set, use direct API mode.
+- Otherwise use official R package mode.
+
+You can force R mode:
 
 ```bash
+export WID_BACKEND=r
+```
+
+If `Rscript` is not on your `PATH`, set:
+
+```bash
+export WID_RSCRIPT_BIN="/path/to/Rscript"
+```
+
+## Optional Direct API Mode
+
+Direct API mode is optional and requires a WID API credential:
+
+```bash
+export WID_BACKEND=api
 export WID_API_KEY_BASE64="..."
 # or
 export WID_API_KEY_HEX="..."
 ```
 
+No API credential is required when using the official R package backend.
+
 ## MCP Config
 
-Example stdio configuration:
+Example stdio configuration using R mode:
 
 ```json
 {
@@ -61,7 +106,24 @@ Example stdio configuration:
       "command": "node",
       "args": ["/path/to/wid-mcp-server/dist/index.js"],
       "env": {
-        "WID_API_KEY_BASE64": "..."
+        "WID_BACKEND": "r"
+      }
+    }
+  }
+}
+```
+
+Example with a custom `Rscript` path:
+
+```json
+{
+  "mcpServers": {
+    "wid": {
+      "command": "node",
+      "args": ["/path/to/wid-mcp-server/dist/index.js"],
+      "env": {
+        "WID_BACKEND": "r",
+        "WID_RSCRIPT_BIN": "/usr/local/bin/Rscript"
       }
     }
   }
@@ -70,7 +132,7 @@ Example stdio configuration:
 
 ## Smoke Test
 
-After setting `WID_API_KEY_BASE64` or `WID_API_KEY_HEX`:
+After installing the official R package:
 
 ```bash
 npm run smoke
@@ -96,5 +158,6 @@ Useful WID references:
 - [WID data page](https://wid.world/data/)
 - [WID codes dictionary](https://wid.world/codes-dictionary/)
 - [WID methodology](https://wid.world/methodology/)
+- [Official WID R package](https://cloud.r-project.org/package=wid)
 
 This project is not affiliated with, endorsed by, or maintained by WID.world or the World Inequality Lab.

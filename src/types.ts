@@ -55,3 +55,57 @@ export interface PaginatedResult<T> {
   hasMore: boolean;
   nextOffset?: number;
 }
+
+export interface FetchDataInput {
+  countries: string[];
+  variableCodes: string[];
+  startYear?: number;
+  endYear?: number;
+  includeExtrapolations?: boolean;
+  limit?: number;
+  offset?: number;
+}
+
+export interface ListVariablesInput {
+  countries: string[];
+  indicators: string[];
+  limit?: number;
+  offset?: number;
+}
+
+export interface GetMetadataInput {
+  countries: string[];
+  variableCodes: string[];
+  limit?: number;
+  offset?: number;
+}
+
+export interface GetSeriesInput {
+  country: string;
+  metric: string;
+  startYear?: number;
+  endYear?: number;
+  includeExtrapolations?: boolean;
+  limit?: number;
+  offset?: number;
+}
+
+export interface WidSeriesResult {
+  metric: MetricDefinition;
+  country: string;
+  data: PaginatedResult<WidDataRow> & { rows: WidDataRow[] };
+  metadata: WidMetadataRecord[];
+}
+
+export interface WidDataProvider {
+  getSeries(input: GetSeriesInput): Promise<WidSeriesResult>;
+  fetchData(input: FetchDataInput): Promise<
+    PaginatedResult<WidDataRow> & { rows: WidDataRow[] }
+  >;
+  listAvailableVariables(
+    input: ListVariablesInput
+  ): Promise<PaginatedResult<WidAvailableVariable>>;
+  getMetadata(input: GetMetadataInput): Promise<
+    PaginatedResult<WidMetadataRecord> & { records: WidMetadataRecord[] }
+  >;
+}

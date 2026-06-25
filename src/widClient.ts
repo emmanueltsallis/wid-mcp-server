@@ -8,8 +8,13 @@ import {
 } from "./constants.js";
 import type {
   MetricDefinition,
+  FetchDataInput,
+  GetMetadataInput,
+  GetSeriesInput,
+  ListVariablesInput,
   PaginatedResult,
   WidAvailableVariable,
+  WidDataProvider,
   WidDataRow,
   WidMetadataRecord
 } from "./types.js";
@@ -22,30 +27,6 @@ interface WidClientOptions {
   cacheTtlMs?: number;
   fetchFn?: FetchFn;
   env?: Record<string, string | undefined>;
-}
-
-interface FetchDataInput {
-  countries: string[];
-  variableCodes: string[];
-  startYear?: number;
-  endYear?: number;
-  includeExtrapolations?: boolean;
-  limit?: number;
-  offset?: number;
-}
-
-interface ListVariablesInput {
-  countries: string[];
-  indicators: string[];
-  limit?: number;
-  offset?: number;
-}
-
-interface GetMetadataInput {
-  countries: string[];
-  variableCodes: string[];
-  limit?: number;
-  offset?: number;
 }
 
 interface CacheEntry {
@@ -306,7 +287,7 @@ export function parseAvailableVariablesResponse(
   return variables.sort((a, b) => a.variableCode.localeCompare(b.variableCode));
 }
 
-export class WidClient {
+export class WidClient implements WidDataProvider {
   private readonly apiKeyBase64: string;
   private readonly baseUrl: string;
   private readonly cacheTtlMs: number;
@@ -365,15 +346,7 @@ export class WidClient {
     return { ...page, records: page.items };
   }
 
-  async getSeries(input: {
-    country: string;
-    metric: string;
-    startYear?: number;
-    endYear?: number;
-    includeExtrapolations?: boolean;
-    limit?: number;
-    offset?: number;
-  }): Promise<{
+  async getSeries(input: GetSeriesInput): Promise<{
     metric: MetricDefinition;
     country: string;
     data: PaginatedResult<WidDataRow> & { rows: WidDataRow[] };

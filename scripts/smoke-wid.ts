@@ -1,7 +1,7 @@
-import { WidClient } from "../src/widClient.js";
+import { createDefaultWidProvider } from "../src/dataProvider.js";
 
 async function main(): Promise<void> {
-  const client = new WidClient();
+  const client = createDefaultWidProvider();
   const result = await client.getSeries({
     country: "Brazil",
     metric: "wealth_income_ratio",

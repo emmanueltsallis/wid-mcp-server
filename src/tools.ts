@@ -11,11 +11,12 @@ import {
   type ResponseFormat,
   type ToolResponse
 } from "./format.js";
-import { WidClient } from "./widClient.js";
+import { createDefaultWidProvider } from "./dataProvider.js";
 import type {
   MetricDefinition,
   PaginatedResult,
   WidAvailableVariable,
+  WidDataProvider,
   WidDataRow,
   WidMetadataRecord
 } from "./types.js";
@@ -107,44 +108,6 @@ type FetchDataInput = z.input<typeof FetchDataSchema>;
 type SearchIndicatorsInput = z.input<typeof SearchIndicatorsSchema>;
 type GetMetadataInput = z.input<typeof GetMetadataSchema>;
 type ExplainCodesInput = z.input<typeof ExplainCodesSchema>;
-
-export interface WidDataProvider {
-  getSeries(input: {
-    country: string;
-    metric: string;
-    startYear?: number;
-    endYear?: number;
-    includeExtrapolations?: boolean;
-    limit?: number;
-    offset?: number;
-  }): Promise<{
-    metric: MetricDefinition;
-    country: string;
-    data: PaginatedResult<WidDataRow> & { rows: WidDataRow[] };
-    metadata: WidMetadataRecord[];
-  }>;
-  fetchData(input: {
-    countries: string[];
-    variableCodes: string[];
-    startYear?: number;
-    endYear?: number;
-    includeExtrapolations?: boolean;
-    limit?: number;
-    offset?: number;
-  }): Promise<PaginatedResult<WidDataRow> & { rows: WidDataRow[] }>;
-  listAvailableVariables(input: {
-    countries: string[];
-    indicators: string[];
-    limit?: number;
-    offset?: number;
-  }): Promise<PaginatedResult<WidAvailableVariable>>;
-  getMetadata(input: {
-    countries: string[];
-    variableCodes: string[];
-    limit?: number;
-    offset?: number;
-  }): Promise<PaginatedResult<WidMetadataRecord> & { records: WidMetadataRecord[] }>;
-}
 
 export function createWidToolHandlers(client: Partial<WidDataProvider>) {
   return {
@@ -326,7 +289,9 @@ export function createWidToolHandlers(client: Partial<WidDataProvider>) {
   };
 }
 
-export function createWidServer(client: WidDataProvider = new WidClient()): McpServer {
+export function createWidServer(
+  client: WidDataProvider = createDefaultWidProvider()
+): McpServer {
   const server = new McpServer({
     name: "wid-mcp-server",
     version: "0.1.0"
