@@ -1,0 +1,45 @@
+{
+  "name": "wid-mcp-server",
+  "version": "0.1.0",
+  "description": "Local MCP server for live World Inequality Database data fetches.",
+  "license": "MIT",
+  "type": "module",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/emmanueltsallis/wid-mcp-server.git"
+  },
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "wid",
+    "wid-world",
+    "world-inequality-database",
+    "inequality",
+    "data"
+  ],
+  "main": "dist/index.js",
+  "bin": {
+    "wid-mcp-server": "dist/index.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "clean": "rm -rf dist",
+    "dev": "tsx src/index.ts",
+    "start": "node dist/index.js",
+    "test": "vitest",
+    "smoke": "tsx scripts/smoke-wid.ts"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "1.29.0",
+    "zod": "^3.25.76"
+  },
+  "devDependencies": {
+    "@types/node": "^24.10.2",
+    "tsx": "^4.21.0",
+    "typescript": "^5.9.3",
+    "vitest": "^4.0.16"
+  }
+}
