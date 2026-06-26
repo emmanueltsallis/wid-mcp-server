@@ -5,6 +5,8 @@ import { METRIC_DEFINITIONS } from "./constants.js";
 import {
   formatAvailableVariablesMarkdown,
   formatMetadataMarkdown,
+  formatMetricCandidatesMarkdown,
+  formatMetricResolutionMarkdown,
   formatRowsMarkdown,
   formatSeriesMarkdown,
   makeToolResponse,
@@ -14,6 +16,8 @@ import {
 import { createDefaultWidProvider } from "./dataProvider.js";
 import type {
   MetricDefinition,
+  MetricCandidate,
+  MetricResolveResult,
   PaginatedResult,
   WidAvailableVariable,
   WidDataProvider,
@@ -33,7 +37,9 @@ const GetSeriesSchema = z.object({
   metric: z
     .string()
     .min(1)
-    .describe("Metric alias, e.g. 'wealth_income_ratio' or 'wealth/income ratio'."),
+    .describe(
+      "Plain-language metric, built-in alias, or exact WID variable code, e.g. 'wealth/income ratio', 'top 1% pre-tax income share', or 'wnweal_p0p100_999_i'."
+    ),
   start_year: z
     .number()
     .int()
@@ -89,6 +95,43 @@ const SearchIndicatorsSchema = z.object({
   response_format: ResponseFormatSchema
 }).strict();
 
+const SearchMetricsSchema = z.object({
+  country: z
+    .string()
+    .min(1)
+    .describe("Country name or WID/ISO code, e.g. 'Brazil' or 'BR'."),
+  query: z
+    .string()
+    .min(1)
+    .describe("Natural-language metric query or exact WID variable code."),
+  percentile: z
+    .string()
+    .regex(/^p[0-9.]+(p[0-9.]+)?$/)
+    .optional()
+    .describe("Optional WID percentile code, e.g. p99p100 or p0p50."),
+  age: z
+    .string()
+    .regex(/^[0-9]{3}$/)
+    .optional()
+    .describe("Optional WID age code, e.g. 992 for adults or 999 for all ages."),
+  population: z
+    .enum(["i", "j", "m", "f", "t", "e"])
+    .optional()
+    .describe("Optional WID population unit code, e.g. j for equal-split adults."),
+  limit: LimitSchema,
+  offset: OffsetSchema,
+  response_format: ResponseFormatSchema
+}).strict();
+
+const ResolveMetricSchema = SearchMetricsSchema.extend({
+  confidence_threshold: z
+    .number()
+    .min(0)
+    .max(500)
+    .optional()
+    .describe("Minimum score needed for automatic resolution. Default is conservative.")
+}).strict();
+
 const GetMetadataSchema = z.object({
   countries: z.array(z.string().min(1)).min(1),
   variable_codes: z
@@ -106,6 +149,8 @@ const ExplainCodesSchema = z.object({
 type GetSeriesInput = z.input<typeof GetSeriesSchema>;
 type FetchDataInput = z.input<typeof FetchDataSchema>;
 type SearchIndicatorsInput = z.input<typeof SearchIndicatorsSchema>;
+type SearchMetricsInput = z.input<typeof SearchMetricsSchema>;
+type ResolveMetricInput = z.input<typeof ResolveMetricSchema>;
 type GetMetadataInput = z.input<typeof GetMetadataSchema>;
 type ExplainCodesInput = z.input<typeof ExplainCodesSchema>;
 
@@ -214,6 +259,70 @@ export function createWidToolHandlers(client: Partial<WidDataProvider>) {
       );
     },
 
+    async wid_search_metrics(
+      input: SearchMetricsInput
+    ): Promise<ToolResponse<Record<string, unknown>>> {
+      if (!client.searchMetrics) {
+        throw new Error("wid_search_metrics requires a WID data client.");
+      }
+      const result = await client.searchMetrics({
+        country: input.country,
+        query: input.query,
+        percentile: input.percentile,
+        age: input.age,
+        population: input.population,
+        limit: input.limit ?? 100,
+        offset: input.offset ?? 0
+      });
+      const structuredContent = {
+        total: result.total,
+        count: result.count,
+        offset: result.offset,
+        hasMore: result.hasMore,
+        nextOffset: result.nextOffset,
+        items: result.items
+      };
+      return makeToolResponse(
+        structuredContent,
+        formatMetricCandidatesMarkdown({
+          candidates: result.items,
+          pagination: result
+        }),
+        (input.response_format ?? "markdown") as ResponseFormat
+      );
+    },
+
+    async wid_resolve_metric(
+      input: ResolveMetricInput
+    ): Promise<ToolResponse<Record<string, unknown>>> {
+      if (!client.resolveMetric) {
+        throw new Error("wid_resolve_metric requires a WID data client.");
+      }
+      const result = await client.resolveMetric({
+        country: input.country,
+        query: input.query,
+        percentile: input.percentile,
+        age: input.age,
+        population: input.population,
+        confidenceThreshold: input.confidence_threshold,
+        limit: input.limit ?? 100,
+        offset: input.offset ?? 0
+      });
+      const structuredContent = {
+        status: result.status,
+        country: result.country,
+        query: result.query,
+        selected: result.selected,
+        candidates: result.candidates,
+        message: result.message
+      };
+      return makeToolResponse(
+        structuredContent,
+        formatMetricResolutionMarkdown(result),
+        (input.response_format ?? "markdown") as ResponseFormat
+      );
+    },
+
     async wid_get_metadata(
       input: GetMetadataInput
     ): Promise<ToolResponse<Record<string, unknown>>> {
@@ -318,6 +427,40 @@ export function registerWidTools(server: McpServer, client: WidDataProvider): vo
       }
     },
     async (input) => handlers.wid_get_series(GetSeriesSchema.parse(input))
+  );
+
+  server.registerTool(
+    "wid_search_metrics",
+    {
+      title: "Search WID Metrics",
+      description:
+        "Search for WID variables from natural language. Uses WID code semantics and live country availability, and returns ranked exact variable-code candidates.",
+      inputSchema: SearchMetricsSchema.shape,
+      annotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: true
+      }
+    },
+    async (input) => handlers.wid_search_metrics(SearchMetricsSchema.parse(input))
+  );
+
+  server.registerTool(
+    "wid_resolve_metric",
+    {
+      title: "Resolve WID Metric",
+      description:
+        "Resolve a natural-language metric to one exact WID variable code when confidence is high. Returns ambiguity candidates instead of guessing.",
+      inputSchema: ResolveMetricSchema.shape,
+      annotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: true
+      }
+    },
+    async (input) => handlers.wid_resolve_metric(ResolveMetricSchema.parse(input))
   );
 
   server.registerTool(

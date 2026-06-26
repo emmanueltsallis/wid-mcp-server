@@ -6,13 +6,26 @@ import {
   METRIC_DEFINITIONS,
   WID_API_BASE_URL
 } from "./constants.js";
+import {
+  candidateIndicatorsForQuery,
+  isExactVariableCode,
+  metricDefinitionFromCandidate,
+  metricDefinitionFromVariableCode,
+  metricResolutionErrorMessage,
+  rankMetricCandidates,
+  resolveRankedMetricCandidates
+} from "./metricResolver.js";
 import type {
-  MetricDefinition,
   FetchDataInput,
   GetMetadataInput,
   GetSeriesInput,
   ListVariablesInput,
+  MetricCandidate,
+  MetricDefinition,
+  MetricResolveResult,
   PaginatedResult,
+  ResolveMetricInput,
+  SearchMetricsInput,
   WidAvailableVariable,
   WidDataProvider,
   WidDataRow,
@@ -305,11 +318,10 @@ export class WidClient implements WidDataProvider {
   async listAvailableVariables(
     input: ListVariablesInput
   ): Promise<PaginatedResult<WidAvailableVariable>> {
-    const payload = await this.requestJson("countries-available-variables", {
-      countries: input.countries.map(normalizeCountry).join(","),
-      variables: input.indicators.join(",")
-    });
-    const variables = parseAvailableVariablesResponse(payload);
+    const variables = await this.fetchAvailableVariables(
+      input.countries.map(normalizeCountry),
+      input.indicators
+    );
     return paginate(variables, input.limit, input.offset);
   }
 
@@ -346,6 +358,55 @@ export class WidClient implements WidDataProvider {
     return { ...page, records: page.items };
   }
 
+  async searchMetrics(input: SearchMetricsInput): Promise<PaginatedResult<MetricCandidate>> {
+    const country = normalizeCountry(input.country);
+    const indicators = candidateIndicatorsForQuery(input);
+    const variables = await this.fetchAvailableVariables([country], indicators);
+    const firstPass = rankMetricCandidates({
+      ...input,
+      country,
+      availableVariables: variables,
+      limit: 25,
+      offset: 0
+    });
+    const variableCodes = unique(firstPass.items.map((candidate) => candidate.variableCode));
+    const metadata =
+      variableCodes.length > 0
+        ? (
+            await this.getMetadata({
+              countries: [country],
+              variableCodes,
+              limit: 1000,
+              offset: 0
+            })
+          ).records
+        : [];
+
+    return rankMetricCandidates({
+      ...input,
+      country,
+      availableVariables: variables,
+      metadata
+    });
+  }
+
+  async resolveMetric(input: ResolveMetricInput): Promise<MetricResolveResult> {
+    const country = normalizeCountry(input.country);
+    const candidates = await this.searchMetrics({
+      ...input,
+      country,
+      limit: Math.max(input.limit ?? 10, 10),
+      offset: 0
+    });
+
+    return resolveRankedMetricCandidates({
+      country,
+      query: input.query,
+      candidates: candidates.items,
+      confidenceThreshold: input.confidenceThreshold
+    });
+  }
+
   async getSeries(input: GetSeriesInput): Promise<{
     metric: MetricDefinition;
     country: string;
@@ -353,7 +414,7 @@ export class WidClient implements WidDataProvider {
     metadata: WidMetadataRecord[];
   }> {
     const country = normalizeCountry(input.country);
-    const metric = resolveMetric(input.metric);
+    const metric = await this.resolveSeriesMetric(country, input.metric);
     const data = await this.fetchData({
       countries: [country],
       variableCodes: [metric.variableCode],
@@ -376,6 +437,42 @@ export class WidClient implements WidDataProvider {
       data,
       metadata: metadata.records
     };
+  }
+
+  private async resolveSeriesMetric(
+    country: string,
+    metricInput: string
+  ): Promise<MetricDefinition> {
+    const trimmed = metricInput.trim();
+    if (isExactVariableCode(trimmed)) {
+      return metricDefinitionFromVariableCode(trimmed.toLowerCase());
+    }
+
+    try {
+      return resolveMetric(metricInput);
+    } catch {
+      const resolution = await this.resolveMetric({
+        country,
+        query: metricInput,
+        limit: 10,
+        offset: 0
+      });
+      if (resolution.status !== "resolved" || !resolution.selected) {
+        throw new Error(metricResolutionErrorMessage(resolution));
+      }
+      return metricDefinitionFromCandidate(resolution.selected, metricInput);
+    }
+  }
+
+  private async fetchAvailableVariables(
+    countries: string[],
+    indicators: string[]
+  ): Promise<WidAvailableVariable[]> {
+    const payload = await this.requestJson("countries-available-variables", {
+      countries: countries.join(","),
+      variables: indicators.join(",")
+    });
+    return parseAvailableVariablesResponse(payload);
   }
 
   private async requestJson(
@@ -628,4 +725,8 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function stringValue(value: unknown): string | undefined {
   return typeof value === "string" && value.trim() ? value.trim() : undefined;
+}
+
+function unique<T>(items: T[]): T[] {
+  return [...new Set(items)];
 }

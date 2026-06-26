@@ -3,6 +3,8 @@ import { describe, expect, it, vi } from "vitest";
 import { createWidToolHandlers } from "../src/tools.js";
 import type {
   MetricDefinition,
+  MetricResolveResult,
+  MetricCandidate,
   PaginatedResult,
   WidAvailableVariable,
   WidDataRow,
@@ -39,6 +41,20 @@ const metadataRecord: WidMetadataRecord = {
   type: "% of NNI",
   unit: "% of national income",
   source: "WID source note"
+};
+
+const metricCandidate: MetricCandidate = {
+  country: "BR",
+  variableCode: "wnweal_p0p100_999_i",
+  indicator: "wnweal",
+  percentile: "p0p100",
+  age: "999",
+  population: "i",
+  score: 220,
+  confidence: "high",
+  description: "Market-value national wealth as a percentage of national income.",
+  matchedFields: ["series type: wealth-to-income ratio", "concept: national wealth"],
+  metadata: metadataRecord
 };
 
 function page<T>(items: T[]): PaginatedResult<T> {
@@ -160,6 +176,63 @@ describe("WID MCP tool handlers", () => {
     });
     expect(result.structuredContent.records).toEqual([metadataRecord]);
     expect(result.content[0].text).toContain("Market-value national wealth");
+  });
+
+  it("searches natural-language WID metrics", async () => {
+    const client = {
+      searchMetrics: vi.fn(async () => page([metricCandidate]))
+    };
+    const handlers = createWidToolHandlers(client);
+
+    const result = await handlers.wid_search_metrics({
+      country: "Brazil",
+      query: "wealth/income ratio"
+    });
+
+    expect(client.searchMetrics).toHaveBeenCalledWith({
+      country: "Brazil",
+      query: "wealth/income ratio",
+      percentile: undefined,
+      age: undefined,
+      population: undefined,
+      limit: 100,
+      offset: 0
+    });
+    expect(result.structuredContent.items).toEqual([metricCandidate]);
+    expect(result.content[0].text).toContain("wnweal_p0p100_999_i");
+  });
+
+  it("resolves natural-language WID metrics without fetching data", async () => {
+    const resolution: MetricResolveResult = {
+      status: "resolved",
+      country: "BR",
+      query: "wealth/income ratio",
+      selected: metricCandidate,
+      candidates: [metricCandidate],
+      message: "Resolved to wnweal_p0p100_999_i."
+    };
+    const client = {
+      resolveMetric: vi.fn(async () => resolution)
+    };
+    const handlers = createWidToolHandlers(client);
+
+    const result = await handlers.wid_resolve_metric({
+      country: "Brazil",
+      query: "wealth/income ratio"
+    });
+
+    expect(client.resolveMetric).toHaveBeenCalledWith({
+      country: "Brazil",
+      query: "wealth/income ratio",
+      percentile: undefined,
+      age: undefined,
+      population: undefined,
+      confidenceThreshold: undefined,
+      limit: 100,
+      offset: 0
+    });
+    expect(result.structuredContent.status).toBe("resolved");
+    expect(result.content[0].text).toContain("Resolved");
   });
 
   it("explains built-in WID aliases without calling the live client", async () => {

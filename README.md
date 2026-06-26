@@ -31,7 +31,7 @@ The MCP can call:
 ```json
 {
   "country": "Brazil",
-  "metric": "wealth_income_ratio",
+  "metric": "wealth/income ratio",
   "start_year": 1980
 }
 ```
@@ -42,13 +42,44 @@ The server maps that to:
 - Metric: `wealth_income_ratio` -> `wnweal_p0p100_999_i`
 - Output: clean rows with year, value, unit when available, and extrapolation flag when available
 
+For less obvious prompts, ask the MCP to resolve first:
+
+```json
+{
+  "country": "Brazil",
+  "query": "top 1% pre-tax income share"
+}
+```
+
+`wid_resolve_metric` returns one exact WID variable code only when confidence is high. If a prompt is broad, such as `income`, it returns candidate variables instead of guessing.
+
 ## Tools
 
-- `wid_get_series`: high-level natural metric lookup. Use this for Brazil wealth/income ratio style questions.
+- `wid_get_series`: fetch a series by natural-language metric, built-in alias, or exact WID variable code. Ambiguous natural-language prompts fail with candidate suggestions.
+- `wid_search_metrics`: search natural-language metric text against WID code semantics and live country availability.
+- `wid_resolve_metric`: resolve a natural-language metric to one exact WID variable code when confidence is high.
 - `wid_search_indicators`: discover available WID variable combinations for countries and indicators.
 - `wid_fetch_data`: fetch exact WID variable codes.
 - `wid_get_metadata`: fetch units, source, method, quality, and description metadata.
 - `wid_explain_codes`: explain built-in aliases and WID code structure.
+
+## How Metric Resolution Works
+
+WID variable codes encode:
+
+```text
+series type + concept _ percentile _ age _ population
+```
+
+For example, `sptinc_p99p100_992_j` means:
+
+- `s`: share
+- `ptinc`: pretax national income
+- `p99p100`: top 1%
+- `992`: adults
+- `j`: equal-split adults
+
+The server uses WID's public code structure as a dictionary, then verifies possible variables against live WID availability for the requested country. It fetches metadata only for the best candidates, so it does not download or store the WID dataset.
 
 ## Setup
 

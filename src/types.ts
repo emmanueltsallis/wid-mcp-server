@@ -47,6 +47,45 @@ export interface MetricDefinition {
   unitHint: string;
 }
 
+export type MetricConfidence = "high" | "medium" | "low";
+
+export interface MetricCandidate {
+  country: string;
+  variableCode: string;
+  indicator: string;
+  percentile: string;
+  age: string;
+  population: string;
+  score: number;
+  confidence: MetricConfidence;
+  description: string;
+  matchedFields: string[];
+  metadata?: WidMetadataRecord;
+}
+
+export interface SearchMetricsInput {
+  country: string;
+  query: string;
+  percentile?: string;
+  age?: string;
+  population?: string;
+  limit?: number;
+  offset?: number;
+}
+
+export interface ResolveMetricInput extends SearchMetricsInput {
+  confidenceThreshold?: number;
+}
+
+export interface MetricResolveResult {
+  status: "resolved" | "ambiguous" | "not_found";
+  country: string;
+  query: string;
+  selected?: MetricCandidate;
+  candidates: MetricCandidate[];
+  message: string;
+}
+
 export interface PaginatedResult<T> {
   total: number;
   count: number;
@@ -108,4 +147,6 @@ export interface WidDataProvider {
   getMetadata(input: GetMetadataInput): Promise<
     PaginatedResult<WidMetadataRecord> & { records: WidMetadataRecord[] }
   >;
+  searchMetrics(input: SearchMetricsInput): Promise<PaginatedResult<MetricCandidate>>;
+  resolveMetric(input: ResolveMetricInput): Promise<MetricResolveResult>;
 }

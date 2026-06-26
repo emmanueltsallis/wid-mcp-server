@@ -1,5 +1,7 @@
 import type {
   MetricDefinition,
+  MetricCandidate,
+  MetricResolveResult,
   PaginatedResult,
   WidAvailableVariable,
   WidDataRow,
@@ -162,6 +164,64 @@ export function formatMetadataMarkdown(input: {
 
   if (input.pagination.hasMore) {
     lines.push(`More records available. Use offset ${input.pagination.nextOffset}.`);
+  }
+
+  return lines.join("\n").trimEnd();
+}
+
+export function formatMetricCandidatesMarkdown(input: {
+  title?: string;
+  candidates: MetricCandidate[];
+  pagination: Pick<
+    PaginatedResult<MetricCandidate>,
+    "total" | "count" | "hasMore" | "nextOffset"
+  >;
+}): string {
+  const lines = [
+    `# ${input.title ?? "WID Metric Candidates"}`,
+    "",
+    `Candidates returned: ${input.pagination.count} of ${input.pagination.total}`,
+    "",
+    "| Variable code | Score | Confidence | Description | Matched fields |",
+    "| :--- | ---: | :--- | :--- | :--- |"
+  ];
+
+  for (const candidate of input.candidates) {
+    lines.push(
+      `| \`${candidate.variableCode}\` | ${candidate.score} | ${candidate.confidence} | ${candidate.description} | ${candidate.matchedFields.join(", ")} |`
+    );
+  }
+
+  if (input.pagination.hasMore) {
+    lines.push("");
+    lines.push(`More candidates available. Use offset ${input.pagination.nextOffset}.`);
+  }
+
+  return lines.join("\n");
+}
+
+export function formatMetricResolutionMarkdown(result: MetricResolveResult): string {
+  const lines = [
+    `# WID Metric Resolution: ${result.status}`,
+    "",
+    result.message,
+    ""
+  ];
+
+  if (result.selected) {
+    lines.push(`Selected variable: \`${result.selected.variableCode}\``);
+    lines.push(`Description: ${result.selected.description}`);
+    lines.push("");
+  }
+
+  if (result.candidates.length > 0) {
+    lines.push("| Variable code | Score | Confidence | Description |");
+    lines.push("| :--- | ---: | :--- | :--- |");
+    for (const candidate of result.candidates) {
+      lines.push(
+        `| \`${candidate.variableCode}\` | ${candidate.score} | ${candidate.confidence} | ${candidate.description} |`
+      );
+    }
   }
 
   return lines.join("\n").trimEnd();

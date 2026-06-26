@@ -46,8 +46,12 @@ describe("R WID client", () => {
         variable_code: "wnweal_p0p100_999_i",
         shortname: "Market-value national wealth",
         shortdes: "Net national wealth description",
+        technicaldes: "Technical national wealth definition",
+        shorttype: "% of NNI",
+        longtype: "Proportion of net national income",
         pop: "individuals",
         age: "All Ages",
+        unit: "% of national income",
         source: "WID source",
         imputation: "full",
         quality: "4",
@@ -62,8 +66,12 @@ describe("R WID client", () => {
         countryName: "Brazil",
         shortName: "Market-value national wealth",
         shortDescription: "Net national wealth description",
+        technicalDescription: "Technical national wealth definition",
+        type: "% of NNI",
+        typeDescription: "Proportion of net national income",
         population: "individuals",
         age: "All Ages",
+        unit: "% of national income",
         source: "WID source",
         imputation: "full",
         quality: "4",
@@ -213,6 +221,93 @@ describe("R WID client", () => {
       action: "available_variables",
       countries: ["BR"],
       indicators: ["wnweal"]
+    });
+  });
+
+  it("resolves natural-language metrics before downloading through the R backend", async () => {
+    const runRScript = vi.fn(async (_script, inputJson) => {
+      const input = JSON.parse(inputJson);
+      if (input.action === "available_variables") {
+        return JSON.stringify({
+          items: [
+            {
+              indicator: "sptinc",
+              country: "BR",
+              percentile: "p99p100",
+              age: "992",
+              population: "j",
+              variableCode: "sptinc_p99p100_992_j"
+            }
+          ]
+        });
+      }
+      if (input.action === "metadata") {
+        return JSON.stringify({
+          metadata: [
+            {
+              country: "BR",
+              countryname: "Brazil",
+              variable_code: "sptinc_p99p100_992_j",
+              shortname: "Top 1% pretax national income share",
+              shortdes:
+                "Share of pretax national income received by equal-split adults in the top 1%."
+            }
+          ]
+        });
+      }
+      if (input.action === "download") {
+        return JSON.stringify({
+          rows: [
+            {
+              country: "BR",
+              variable_code: "sptinc_p99p100_992_j",
+              indicator: "sptinc",
+              percentile: "p99p100",
+              age_code: "992",
+              pop_code: "j",
+              year: 1980,
+              value: 0.17,
+              unit: "fraction",
+              is_extrapolated: false
+            }
+          ],
+          metadata: [
+            {
+              country: "BR",
+              countryname: "Brazil",
+              variable_code: "sptinc_p99p100_992_j",
+              shortname: "Top 1% pretax national income share"
+            }
+          ]
+        });
+      }
+      throw new Error(`Unexpected action: ${input.action}`);
+    });
+    const client = new RwidClient({ runRScript });
+
+    const result = await client.getSeries({
+      country: "Brazil",
+      metric: "top 1% pre-tax income share",
+      startYear: 1980
+    });
+
+    expect(result.metric.variableCode).toBe("sptinc_p99p100_992_j");
+    expect(result.data.rows[0].value).toBe(0.17);
+    expect(runRScript).toHaveBeenCalledTimes(3);
+    expect(JSON.parse(runRScript.mock.calls[0][1])).toMatchObject({
+      action: "available_variables",
+      countries: ["BR"],
+      indicators: ["sptinc"]
+    });
+    expect(JSON.parse(runRScript.mock.calls[1][1])).toMatchObject({
+      action: "metadata",
+      countries: ["BR"],
+      variable_codes: ["sptinc_p99p100_992_j"]
+    });
+    expect(JSON.parse(runRScript.mock.calls[2][1])).toMatchObject({
+      action: "download",
+      countries: ["BR"],
+      variable_codes: ["sptinc_p99p100_992_j"]
     });
   });
 });

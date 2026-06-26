@@ -237,4 +237,78 @@ describe("WID client helpers", () => {
     expect(url).toContain("variables=wnweal_p0p100_999_i");
     expect((init.headers as Record<string, string>)["x-api-key"]).toBe("abc123");
   });
+
+  it("searches natural-language metrics through availability and metadata endpoints", async () => {
+    const fetchMock = vi.fn(async (url: string) => {
+      if (url.includes("/countries-available-variables?")) {
+        return new Response(
+          JSON.stringify({
+            wnweal: {
+              BR: [["p0p100", "999", "i"]]
+            }
+          }),
+          { status: 200, headers: { "content-type": "application/json" } }
+        );
+      }
+
+      if (url.includes("/countries-variables-metadata?")) {
+        return new Response(
+          JSON.stringify([
+            {
+              metadata_func: [
+                {
+                  wnweal_p0p100_999_i: [
+                    {
+                      name: {
+                        shortname: "Market-value national wealth",
+                        simpledes:
+                          "Market-value national wealth as a percentage of national income."
+                      }
+                    },
+                    { type: { shortdes: "% of NNI" } },
+                    { pop: { shortdes: "individuals" } },
+                    { age: { shortname: "All Ages" } },
+                    {
+                      units: [
+                        {
+                          country_name: "Brazil",
+                          country: "BR",
+                          metadata: { unit: "% of national income" }
+                        }
+                      ]
+                    },
+                    { notes: [] }
+                  ]
+                }
+              ]
+            }
+          ]),
+          { status: 200, headers: { "content-type": "application/json" } }
+        );
+      }
+
+      throw new Error(`Unexpected URL: ${url}`);
+    });
+    const client = new WidClient({
+      apiKeyBase64: "abc123",
+      fetchFn: fetchMock,
+      cacheTtlMs: 0
+    });
+
+    const result = await client.searchMetrics({
+      country: "Brazil",
+      query: "wealth/income ratio"
+    });
+
+    expect(result.items[0]).toMatchObject({
+      variableCode: "wnweal_p0p100_999_i",
+      confidence: "high"
+    });
+    expect(result.items[0].metadata?.countryName).toBe("Brazil");
+    const urls = fetchMock.mock.calls.map(([url]) => String(url));
+    expect(urls.some((url) => url.includes("variables=wnweal"))).toBe(true);
+    expect(
+      urls.some((url) => url.includes("variables=wnweal_p0p100_999_i"))
+    ).toBe(true);
+  });
 });
