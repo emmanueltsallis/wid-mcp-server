@@ -74,9 +74,9 @@ WID world aggregates use currency-suffixed region codes:
 - `WO-PPP`: world aggregate in PPP (purchasing power parity) terms.
 - `WO-MER`: world aggregate in market-exchange-rate terms.
 
-Broad country aliases such as `World`, `global`, `worldwide`, and `whole world` default to `WO-PPP`, which is the better default for global inequality, real distribution, and purchasing-power comparisons.
+Broad country aliases such as `World`, `global`, `worldwide`, and `whole world` default to `WO-MER`, which is the better default for market-valued financial power, dollar balance sheets, and global asset-market comparisons.
 
-When the country is a world alias and the prompt or `context` clearly points to market valuation, the server resolves to `WO-MER` instead. Examples include `market exchange rates`, `market valuation`, `financial wealth`, `USD balance sheets`, `global asset prices`, and explicit `MER` wording.
+When the country is a world alias and the prompt or `context` clearly points to purchasing-power comparisons, the server resolves to `WO-PPP` instead. Examples include `purchasing power parity`, `real income`, `living standards`, `local purchasing power`, and `what people can buy`.
 
 Callers can bypass this resolver by passing `WO-PPP` or `WO-MER` explicitly.
 

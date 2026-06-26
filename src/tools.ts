@@ -406,19 +406,19 @@ export function createWidToolHandlers(client: Partial<WidDataProvider>) {
       const structuredContent = {
         metrics: METRIC_DEFINITIONS,
         worldRegions: {
-          default: WORLD_REGION_CODES.ppp,
+          default: WORLD_REGION_CODES.mer,
           alternatives: [
-            {
-              code: WORLD_REGION_CODES.ppp,
-              label: "World, PPP valuation",
-              useWhen:
-                "Default for broad global inequality, real distribution, and purchasing-power comparisons."
-            },
             {
               code: WORLD_REGION_CODES.mer,
               label: "World, market-exchange-rate valuation",
               useWhen:
-                "Use for market valuation, financial wealth, USD balance sheets, global asset prices, or explicit MER requests."
+                "Default for broad world aliases; use for market valuation, financial wealth, USD balance sheets, global asset prices, or explicit MER requests."
+            },
+            {
+              code: WORLD_REGION_CODES.ppp,
+              label: "World, PPP valuation",
+              useWhen:
+                "Use when prompt context asks for purchasing power parity, real income, living standards, or local purchasing-power comparisons."
             }
           ]
         },
@@ -442,9 +442,9 @@ export function createWidToolHandlers(client: Partial<WidDataProvider>) {
         "Use `wid_get_series` for common plain-language metrics.",
         "",
         "## World Region Codes",
-        `- Broad aliases such as \`World\`, \`global\`, and \`whole world\` default to \`${WORLD_REGION_CODES.ppp}\`.`,
-        `- Use \`${WORLD_REGION_CODES.mer}\` for market-exchange-rate valuation, financial wealth, USD balance sheets, or global asset-price questions.`,
-        `- If a world alias is paired with market-valuation context, the server resolves it to \`${WORLD_REGION_CODES.mer}\`; otherwise it resolves to \`${WORLD_REGION_CODES.ppp}\`.`,
+        `- Broad aliases such as \`World\`, \`global\`, and \`whole world\` default to \`${WORLD_REGION_CODES.mer}\`.`,
+        `- Use \`${WORLD_REGION_CODES.ppp}\` for purchasing power parity, real income, living standards, or local purchasing-power comparisons.`,
+        `- If a world alias is paired with PPP or living-standards context, the server resolves it to \`${WORLD_REGION_CODES.ppp}\`; otherwise it resolves to \`${WORLD_REGION_CODES.mer}\`.`,
         "",
         "## Built-in Metrics",
         ...METRIC_DEFINITIONS.flatMap((definition) => [

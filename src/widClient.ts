@@ -104,9 +104,9 @@ export function normalizeCountry(
 }
 
 export function resolveWorldRegionCode(prompt: string | undefined): string {
-  return promptHasMarketExchangeContext(prompt)
-    ? WORLD_REGION_CODES.mer
-    : WORLD_REGION_CODES.ppp;
+  return promptHasPurchasingPowerContext(prompt)
+    ? WORLD_REGION_CODES.ppp
+    : WORLD_REGION_CODES.mer;
 }
 
 function isWorldAlias(country: string): boolean {
@@ -121,30 +121,24 @@ function isWorldAlias(country: string): boolean {
   ].includes(normalized);
 }
 
-function promptHasMarketExchangeContext(prompt: string | undefined): boolean {
+function promptHasPurchasingPowerContext(prompt: string | undefined): boolean {
   const normalized = prompt?.trim().toLowerCase().replace(/\s+/g, " ") ?? "";
   if (!normalized) {
     return false;
   }
 
-  const phraseMatch = [
-    "market exchange",
-    "market-exchange",
-    "usd market",
-    "current usd",
-    "nominal usd",
-    "market valuation",
-    "market-valued",
-    "market value",
-    "global asset prices",
-    "asset prices",
-    "financial wealth",
-    "balance sheet",
-    "balance sheets",
-    "cross-border purchasing power",
-    "foreign investors"
+  return [
+    "purchasing power parity",
+    "purchasing-power parity",
+    "ppp",
+    "real income",
+    "real incomes",
+    "real distribution",
+    "real living standards",
+    "living standards",
+    "local purchasing power",
+    "what people can buy"
   ].some((term) => normalized.includes(term));
-  return phraseMatch || /\bmer\b/.test(normalized);
 }
 
 export function countryPrompt(parts: Array<string | undefined>): string | undefined {

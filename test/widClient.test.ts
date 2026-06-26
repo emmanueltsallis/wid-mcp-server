@@ -16,10 +16,15 @@ describe("WID client helpers", () => {
     expect(() => normalizeCountry("Atlantis")).toThrow(/Unknown country/i);
   });
 
-  it("defaults broad world aliases to the PPP world aggregate", () => {
-    expect(normalizeCountry("World")).toBe("WO-PPP");
-    expect(normalizeCountry("global")).toBe("WO-PPP");
-    expect(normalizeCountry("whole world")).toBe("WO-PPP");
+  it("defaults broad world aliases to the MER world aggregate", () => {
+    expect(normalizeCountry("World")).toBe("WO-MER");
+    expect(normalizeCountry("global")).toBe("WO-MER");
+    expect(normalizeCountry("whole world")).toBe("WO-MER");
+  });
+
+  it("preserves explicit PPP and MER world aggregate codes", () => {
+    expect(normalizeCountry("WO-PPP")).toBe("WO-PPP");
+    expect(normalizeCountry("WO-MER")).toBe("WO-MER");
   });
 
   it("uses the MER world aggregate when prompt context asks for market valuation", () => {
@@ -33,6 +38,19 @@ describe("WID client helpers", () => {
         prompt: "compare financial wealth in USD balance sheets"
       })
     ).toBe("WO-MER");
+  });
+
+  it("uses the PPP world aggregate when prompt context asks for purchasing power", () => {
+    expect(
+      normalizeCountry("World", {
+        prompt: "global inequality in purchasing power parity terms"
+      })
+    ).toBe("WO-PPP");
+    expect(
+      normalizeCountry("global", {
+        prompt: "compare real living standards across households"
+      })
+    ).toBe("WO-PPP");
   });
 
   it("resolves the wealth income ratio metric to the WID variable code", () => {
