@@ -366,7 +366,7 @@ export class WidClient implements WidDataProvider {
       ...input,
       country,
       availableVariables: variables,
-      limit: 25,
+      limit: input.assumptionPolicy === "wid_default" ? 3 : 8,
       offset: 0
     });
     const variableCodes = unique(firstPass.items.map((candidate) => candidate.variableCode));
@@ -403,18 +403,24 @@ export class WidClient implements WidDataProvider {
       country,
       query: input.query,
       candidates: candidates.items,
+      assumptionPolicy: input.assumptionPolicy,
       confidenceThreshold: input.confidenceThreshold
     });
   }
 
   async getSeries(input: GetSeriesInput): Promise<{
     metric: MetricDefinition;
+    resolution?: MetricResolveResult;
     country: string;
     data: PaginatedResult<WidDataRow> & { rows: WidDataRow[] };
     metadata: WidMetadataRecord[];
   }> {
     const country = normalizeCountry(input.country);
-    const metric = await this.resolveSeriesMetric(country, input.metric);
+    const { metric, resolution } = await this.resolveSeriesMetric(
+      country,
+      input.metric,
+      input.assumptionPolicy
+    );
     const data = await this.fetchData({
       countries: [country],
       variableCodes: [metric.variableCode],
@@ -433,6 +439,7 @@ export class WidClient implements WidDataProvider {
 
     return {
       metric,
+      ...(resolution ? { resolution } : {}),
       country,
       data,
       metadata: metadata.records
@@ -441,26 +448,31 @@ export class WidClient implements WidDataProvider {
 
   private async resolveSeriesMetric(
     country: string,
-    metricInput: string
-  ): Promise<MetricDefinition> {
+    metricInput: string,
+    assumptionPolicy: GetSeriesInput["assumptionPolicy"]
+  ): Promise<{ metric: MetricDefinition; resolution?: MetricResolveResult }> {
     const trimmed = metricInput.trim();
     if (isExactVariableCode(trimmed)) {
-      return metricDefinitionFromVariableCode(trimmed.toLowerCase());
+      return { metric: metricDefinitionFromVariableCode(trimmed.toLowerCase()) };
     }
 
     try {
-      return resolveMetric(metricInput);
+      return { metric: resolveMetric(metricInput) };
     } catch {
       const resolution = await this.resolveMetric({
         country,
         query: metricInput,
+        assumptionPolicy,
         limit: 10,
         offset: 0
       });
       if (resolution.status !== "resolved" || !resolution.selected) {
         throw new Error(metricResolutionErrorMessage(resolution));
       }
-      return metricDefinitionFromCandidate(resolution.selected, metricInput);
+      return {
+        metric: metricDefinitionFromCandidate(resolution.selected, metricInput),
+        resolution
+      };
     }
   }
 

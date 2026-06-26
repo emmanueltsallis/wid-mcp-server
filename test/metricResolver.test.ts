@@ -33,6 +33,14 @@ const availableVariables: WidAvailableVariable[] = [
     variableCode: "aptinc_p99p100_992_j"
   },
   {
+    indicator: "aptinc",
+    country: "BR",
+    percentile: "p0p100",
+    age: "992",
+    population: "j",
+    variableCode: "aptinc_p0p100_992_j"
+  },
+  {
     indicator: "sdiinc",
     country: "BR",
     percentile: "p99p100",
@@ -73,6 +81,14 @@ const metadata: WidMetadataRecord[] = [
     shortDescription:
       "Share of pretax national income received by equal-split adults in the top 1%.",
     unit: "fraction"
+  },
+  {
+    variableCode: "aptinc_p0p100_992_j",
+    country: "BR",
+    shortName: "Average pretax national income",
+    shortDescription:
+      "Average pretax national income received by equal-split adults.",
+    unit: "EUR"
   }
 ];
 
@@ -117,6 +133,47 @@ describe("WID metric resolver", () => {
     expect(result.status).toBe("ambiguous");
     expect(result.selected).toBeUndefined();
     expect(result.candidates.length).toBeGreaterThan(1);
+    expect(result.clarifyingQuestion).toMatch(/income/i);
+  });
+
+  it("uses documented WID defaults for broad income prompts when explicitly requested", () => {
+    const result = resolveMetricCandidate({
+      country: "BR",
+      query: "income",
+      assumptionPolicy: "wid_default",
+      availableVariables,
+      metadata
+    });
+
+    expect(result.status).toBe("resolved");
+    expect(result.selected?.variableCode).toBe("aptinc_p0p100_992_j");
+    expect(result.assumptionPolicy).toBe("wid_default");
+    expect(result.assumptions).toEqual([
+      "income means average pretax national income",
+      "percentile means the full adult distribution",
+      "age means adults",
+      "population unit means equal-split adults"
+    ]);
+    expect(result.alternatives.map((alternative) => alternative.label)).toContain(
+      "income inequality"
+    );
+  });
+
+  it("keeps risky inequality prompts ambiguous even with WID defaults", () => {
+    const result = resolveMetricCandidate({
+      country: "BR",
+      query: "income inequality",
+      assumptionPolicy: "wid_default",
+      availableVariables,
+      metadata
+    });
+
+    expect(result.status).toBe("ambiguous");
+    expect(result.selected).toBeUndefined();
+    expect(result.alternatives.map((alternative) => alternative.label)).toContain(
+      "Gini coefficient"
+    );
+    expect(result.clarifyingQuestion).toMatch(/Gini|top/i);
   });
 
   it("lets exact WID variable codes win when they are available", () => {

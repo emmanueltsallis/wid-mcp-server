@@ -1,7 +1,9 @@
 import { METRIC_DEFINITIONS } from "./constants.js";
 import type {
+  AssumptionPolicy,
   MetricCandidate,
   MetricDefinition,
+  MetricResolutionAlternative,
   MetricResolveResult,
   PaginatedResult,
   ResolveMetricInput,
@@ -17,6 +19,45 @@ const VARIABLE_CODE_SEARCH_RE =
 const SIX_LETTER_RE = /\b[a-z]{6}\b/gi;
 const DEFAULT_RESOLVE_THRESHOLD = 120;
 const MIN_RESOLVE_GAP = 20;
+const WID_DEFAULT_INCOME_ASSUMPTIONS = [
+  "income means average pretax national income",
+  "percentile means the full adult distribution",
+  "age means adults",
+  "population unit means equal-split adults"
+];
+const INCOME_ALTERNATIVES: MetricResolutionAlternative[] = [
+  {
+    label: "income inequality",
+    description: "Could mean Gini, top income shares, bottom income shares, or top-to-bottom ratios."
+  },
+  {
+    label: "post-tax income",
+    description: "Disposable or post-tax income after taxes and transfers."
+  },
+  {
+    label: "labor income",
+    description: "Income from labor rather than capital."
+  },
+  {
+    label: "capital income",
+    description: "Income from capital rather than labor."
+  }
+];
+const INEQUALITY_ALTERNATIVES: MetricResolutionAlternative[] = [
+  {
+    label: "Gini coefficient",
+    description: "Single-number inequality summary for the full distribution.",
+    variableCodeHint: "gptinc_p0p100_992_j"
+  },
+  {
+    label: "top income share",
+    description: "Share received by a top group such as top 1% or top 10%."
+  },
+  {
+    label: "bottom income share",
+    description: "Share received by a bottom group such as bottom 50%."
+  }
+];
 const STOP_WORDS = new Set([
   "a",
   "an",
@@ -53,6 +94,7 @@ interface DictionaryEntry {
 
 interface ParsedMetricQuery {
   normalizedQuery: string;
+  assumptionPolicy: AssumptionPolicy;
   exactVariableCode?: string;
   explicitIndicators: string[];
   seriesTypes: WeightedHint[];
@@ -305,10 +347,15 @@ export function candidateIndicatorsForQuery(input: {
   percentile?: string;
   age?: string;
   population?: string;
+  assumptionPolicy?: AssumptionPolicy;
 }): string[] {
   const parsed = parseMetricQuery(input);
   if (parsed.exactVariableCode) {
     return [parsed.exactVariableCode.split("_")[0]];
+  }
+
+  if (isBroadIncomeDefaultable(parsed.normalizedQuery, parsed.assumptionPolicy)) {
+    return ["aptinc"];
   }
 
   const indicators = buildIndicatorHints(parsed).map((hint) => hint.code);
@@ -403,6 +450,7 @@ export function resolveMetricCandidate(input: SearchMetricsInput & {
     country: input.country,
     query: input.query,
     candidates: page.items,
+    assumptionPolicy: input.assumptionPolicy,
     confidenceThreshold: input.confidenceThreshold
   });
 }
@@ -411,14 +459,22 @@ export function resolveRankedMetricCandidates(input: {
   country: string;
   query: string;
   candidates: MetricCandidate[];
+  assumptionPolicy?: AssumptionPolicy;
   confidenceThreshold?: number;
 }): MetricResolveResult {
+  const steering = getQuerySteering(input.query, input.assumptionPolicy);
   if (input.candidates.length === 0) {
     return {
       status: "not_found",
       country: input.country,
       query: input.query,
       candidates: [],
+      assumptionPolicy: steering.assumptionPolicy,
+      assumptions: steering.assumptions,
+      alternatives: steering.alternatives,
+      ...(steering.clarifyingQuestion
+        ? { clarifyingQuestion: steering.clarifyingQuestion }
+        : {}),
       message:
         "No verified WID variable matched the query. Try an exact WID variable code or a more specific concept such as 'pretax income share' or 'wealth/income ratio'."
     };
@@ -428,14 +484,23 @@ export function resolveRankedMetricCandidates(input: {
   const threshold = input.confidenceThreshold ?? DEFAULT_RESOLVE_THRESHOLD;
   const hasClearGap = !second || top.score - second.score >= MIN_RESOLVE_GAP;
 
-  if (top.score >= threshold && hasClearGap) {
+  if (!steering.forceClarification && top.score >= threshold && hasClearGap) {
     return {
       status: "resolved",
       country: input.country,
       query: input.query,
       selected: top,
       candidates: input.candidates,
-      message: `Resolved to ${top.variableCode}.`
+      assumptionPolicy: steering.assumptionPolicy,
+      assumptions: steering.assumptions,
+      alternatives: steering.alternatives,
+      ...(steering.clarifyingQuestion
+        ? { clarifyingQuestion: steering.clarifyingQuestion }
+        : {}),
+      message:
+        steering.assumptions.length > 0
+          ? `Resolved to ${top.variableCode} using WID default assumptions.`
+          : `Resolved to ${top.variableCode}.`
     };
   }
 
@@ -444,6 +509,12 @@ export function resolveRankedMetricCandidates(input: {
     country: input.country,
     query: input.query,
     candidates: input.candidates,
+    assumptionPolicy: steering.assumptionPolicy,
+    assumptions: steering.assumptions,
+    alternatives: steering.alternatives,
+    ...(steering.clarifyingQuestion
+      ? { clarifyingQuestion: steering.clarifyingQuestion }
+      : {}),
     message:
       "The query matched multiple WID variables or did not reach high confidence. Pick a variable code from the candidates, or make the query more specific."
   };
@@ -482,6 +553,11 @@ export function metricResolutionErrorMessage(result: MetricResolveResult): strin
 
   return [
     result.message,
+    result.clarifyingQuestion ? `Clarifying question: ${result.clarifyingQuestion}` : undefined,
+    result.assumptions.length > 0 ? "Assumptions:" : undefined,
+    ...result.assumptions.map((assumption) => `- ${assumption}`),
+    result.alternatives.length > 0 ? "Alternative interpretations:" : undefined,
+    ...result.alternatives.map((alternative) => `- ${alternative.label}: ${alternative.description}`),
     candidateLines.length > 0 ? "Candidate WID variables:" : undefined,
     ...candidateLines,
     "Use wid_resolve_metric or wid_search_metrics to inspect choices, then pass the selected exact variable code to wid_get_series or wid_fetch_data."
@@ -495,33 +571,45 @@ function parseMetricQuery(input: {
   percentile?: string;
   age?: string;
   population?: string;
+  assumptionPolicy?: AssumptionPolicy;
 }): ParsedMetricQuery {
   const normalizedQuery = normalizeText(input.query);
+  const assumptionPolicy = input.assumptionPolicy ?? "strict";
   const exactVariableCode = extractExactVariableCode(input.query);
   const explicitIndicators = extractExplicitIndicators(input.query);
   const seriesTypes = scoreDictionary(SERIES_TYPES, normalizedQuery, "series type");
   const concepts = scoreDictionary(CONCEPTS, normalizedQuery, "concept");
 
   addFallbacks(normalizedQuery, seriesTypes, concepts);
+  applyAssumptionPolicy({
+    normalizedQuery,
+    assumptionPolicy,
+    seriesTypes,
+    concepts
+  });
 
   return {
     normalizedQuery,
+    assumptionPolicy,
     ...(exactVariableCode ? { exactVariableCode } : {}),
     explicitIndicators,
     seriesTypes: mergeHints(seriesTypes),
     concepts: mergeHints(concepts),
     percentiles: mergeHints([
       ...parsePercentiles(normalizedQuery),
+      ...defaultPolicyPercentiles(normalizedQuery, assumptionPolicy),
       ...(input.percentile
         ? [{ code: input.percentile, score: 40, matchedFields: [`percentile: ${input.percentile}`] }]
         : [])
     ]),
     ages: mergeHints([
       ...parseAges(normalizedQuery),
+      ...defaultPolicyAges(normalizedQuery, assumptionPolicy),
       ...(input.age ? [{ code: input.age, score: 35, matchedFields: [`age: ${input.age}`] }] : [])
     ]),
     populations: mergeHints([
       ...parsePopulations(normalizedQuery),
+      ...defaultPolicyPopulations(normalizedQuery, assumptionPolicy),
       ...(input.population
         ? [{ code: input.population, score: 35, matchedFields: [`population: ${input.population}`] }]
         : [])
@@ -623,6 +711,141 @@ function addFallbacks(
   if (concepts.some((item) => item.code === "gdpro") && seriesTypes.length === 0) {
     seriesTypes.push(hint("m", 70, "series type: total"));
   }
+}
+
+function applyAssumptionPolicy(input: {
+  normalizedQuery: string;
+  assumptionPolicy: AssumptionPolicy;
+  seriesTypes: WeightedHint[];
+  concepts: WeightedHint[];
+}): void {
+  if (!isBroadIncomeDefaultable(input.normalizedQuery, input.assumptionPolicy)) {
+    return;
+  }
+
+  input.seriesTypes.push(
+    hint("a", 140, "assumption: average income")
+  );
+  input.concepts.push(
+    hint("ptinc", 140, "assumption: pretax national income")
+  );
+}
+
+function defaultPolicyPercentiles(
+  normalizedQuery: string,
+  assumptionPolicy: AssumptionPolicy
+): WeightedHint[] {
+  return isBroadIncomeDefaultable(normalizedQuery, assumptionPolicy)
+    ? [hint("p0p100", 80, "assumption: full distribution")]
+    : [];
+}
+
+function defaultPolicyAges(
+  normalizedQuery: string,
+  assumptionPolicy: AssumptionPolicy
+): WeightedHint[] {
+  return isBroadIncomeDefaultable(normalizedQuery, assumptionPolicy)
+    ? [hint("992", 80, "assumption: adults")]
+    : [];
+}
+
+function defaultPolicyPopulations(
+  normalizedQuery: string,
+  assumptionPolicy: AssumptionPolicy
+): WeightedHint[] {
+  return isBroadIncomeDefaultable(normalizedQuery, assumptionPolicy)
+    ? [hint("j", 80, "assumption: equal-split adults")]
+    : [];
+}
+
+function getQuerySteering(
+  query: string,
+  requestedPolicy: AssumptionPolicy | undefined
+): {
+  assumptionPolicy: AssumptionPolicy;
+  assumptions: string[];
+  alternatives: MetricResolutionAlternative[];
+  clarifyingQuestion?: string;
+  forceClarification: boolean;
+} {
+  const assumptionPolicy = requestedPolicy ?? "strict";
+  const normalizedQuery = normalizeText(query);
+
+  if (isRiskyIncomeInequalityPrompt(normalizedQuery)) {
+    return {
+      assumptionPolicy,
+      assumptions: [],
+      alternatives: INEQUALITY_ALTERNATIVES,
+      clarifyingQuestion:
+        "When you say income inequality, do you mean a Gini coefficient, a top income share, or a bottom income share?",
+      forceClarification: true
+    };
+  }
+
+  if (isBroadIncomePrompt(normalizedQuery)) {
+    if (assumptionPolicy === "wid_default") {
+      return {
+        assumptionPolicy,
+        assumptions: WID_DEFAULT_INCOME_ASSUMPTIONS,
+        alternatives: INCOME_ALTERNATIVES,
+        forceClarification: false
+      };
+    }
+
+    return {
+      assumptionPolicy,
+      assumptions: [],
+      alternatives: INCOME_ALTERNATIVES,
+      clarifyingQuestion:
+        "When you say income, do you mean average pretax income, post-tax income, income inequality, labor income, capital income, or an income share?",
+      forceClarification: false
+    };
+  }
+
+  return {
+    assumptionPolicy,
+    assumptions: [],
+    alternatives: [],
+    forceClarification: false
+  };
+}
+
+function isBroadIncomeDefaultable(
+  normalizedQuery: string,
+  assumptionPolicy: AssumptionPolicy
+): boolean {
+  return assumptionPolicy === "wid_default" && isBroadIncomePrompt(normalizedQuery);
+}
+
+function isBroadIncomePrompt(normalizedQuery: string): boolean {
+  return (
+    phraseInText(normalizedQuery, "income") &&
+    !isRiskyIncomeInequalityPrompt(normalizedQuery) &&
+    !phraseInText(normalizedQuery, "share") &&
+    !phraseInText(normalizedQuery, "top") &&
+    !phraseInText(normalizedQuery, "bottom") &&
+    !phraseInText(normalizedQuery, "labor") &&
+    !phraseInText(normalizedQuery, "labour") &&
+    !phraseInText(normalizedQuery, "capital") &&
+    !phraseInText(normalizedQuery, "post tax") &&
+    !phraseInText(normalizedQuery, "post-tax") &&
+    !phraseInText(normalizedQuery, "after tax") &&
+    !phraseInText(normalizedQuery, "after-tax") &&
+    !phraseInText(normalizedQuery, "disposable") &&
+    !phraseInText(normalizedQuery, "fiscal")
+  );
+}
+
+function isRiskyIncomeInequalityPrompt(normalizedQuery: string): boolean {
+  return (
+    phraseInText(normalizedQuery, "income") &&
+    (phraseInText(normalizedQuery, "inequality") ||
+      phraseInText(normalizedQuery, "distribution")) &&
+    !phraseInText(normalizedQuery, "gini") &&
+    !phraseInText(normalizedQuery, "top") &&
+    !phraseInText(normalizedQuery, "bottom") &&
+    !phraseInText(normalizedQuery, "share")
+  );
 }
 
 function scoreDictionary(

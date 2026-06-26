@@ -209,6 +209,9 @@ describe("WID MCP tool handlers", () => {
       query: "wealth/income ratio",
       selected: metricCandidate,
       candidates: [metricCandidate],
+      assumptionPolicy: "strict",
+      assumptions: [],
+      alternatives: [],
       message: "Resolved to wnweal_p0p100_999_i."
     };
     const client = {
@@ -227,12 +230,66 @@ describe("WID MCP tool handlers", () => {
       percentile: undefined,
       age: undefined,
       population: undefined,
+      assumptionPolicy: undefined,
       confidenceThreshold: undefined,
       limit: 100,
       offset: 0
     });
     expect(result.structuredContent.status).toBe("resolved");
     expect(result.content[0].text).toContain("Resolved");
+  });
+
+  it("passes explicit assumption policy through metric resolution", async () => {
+    const resolution: MetricResolveResult = {
+      status: "resolved",
+      country: "BR",
+      query: "income",
+      selected: {
+        ...metricCandidate,
+        variableCode: "aptinc_p0p100_992_j",
+        indicator: "aptinc",
+        description: "Average pretax national income received by equal-split adults."
+      },
+      candidates: [],
+      assumptionPolicy: "wid_default",
+      assumptions: [
+        "income means average pretax national income",
+        "percentile means the full adult distribution",
+        "age means adults",
+        "population unit means equal-split adults"
+      ],
+      alternatives: [
+        {
+          label: "income inequality",
+          description: "Could mean Gini, top income shares, or bottom income shares."
+        }
+      ],
+      message: "Resolved using WID default assumptions."
+    };
+    const client = {
+      resolveMetric: vi.fn(async () => resolution)
+    };
+    const handlers = createWidToolHandlers(client);
+
+    const result = await handlers.wid_resolve_metric({
+      country: "Brazil",
+      query: "income",
+      assumption_policy: "wid_default"
+    });
+
+    expect(client.resolveMetric).toHaveBeenCalledWith({
+      country: "Brazil",
+      query: "income",
+      percentile: undefined,
+      age: undefined,
+      population: undefined,
+      assumptionPolicy: "wid_default",
+      confidenceThreshold: undefined,
+      limit: 100,
+      offset: 0
+    });
+    expect(result.structuredContent.assumptions).toHaveLength(4);
+    expect(result.content[0].text).toContain("Assumptions");
   });
 
   it("explains built-in WID aliases without calling the live client", async () => {

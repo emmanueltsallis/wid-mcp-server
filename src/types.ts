@@ -48,6 +48,7 @@ export interface MetricDefinition {
 }
 
 export type MetricConfidence = "high" | "medium" | "low";
+export type AssumptionPolicy = "strict" | "wid_default";
 
 export interface MetricCandidate {
   country: string;
@@ -69,6 +70,7 @@ export interface SearchMetricsInput {
   percentile?: string;
   age?: string;
   population?: string;
+  assumptionPolicy?: AssumptionPolicy;
   limit?: number;
   offset?: number;
 }
@@ -83,7 +85,17 @@ export interface MetricResolveResult {
   query: string;
   selected?: MetricCandidate;
   candidates: MetricCandidate[];
+  assumptionPolicy: AssumptionPolicy;
+  assumptions: string[];
+  alternatives: MetricResolutionAlternative[];
+  clarifyingQuestion?: string;
   message: string;
+}
+
+export interface MetricResolutionAlternative {
+  label: string;
+  description: string;
+  variableCodeHint?: string;
 }
 
 export interface PaginatedResult<T> {
@@ -125,12 +137,14 @@ export interface GetSeriesInput {
   startYear?: number;
   endYear?: number;
   includeExtrapolations?: boolean;
+  assumptionPolicy?: AssumptionPolicy;
   limit?: number;
   offset?: number;
 }
 
 export interface WidSeriesResult {
   metric: MetricDefinition;
+  resolution?: MetricResolveResult;
   country: string;
   data: PaginatedResult<WidDataRow> & { rows: WidDataRow[] };
   metadata: WidMetadataRecord[];

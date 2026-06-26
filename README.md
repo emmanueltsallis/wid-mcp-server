@@ -53,11 +53,23 @@ For less obvious prompts, ask the MCP to resolve first:
 
 `wid_resolve_metric` returns one exact WID variable code only when confidence is high. If a prompt is broad, such as `income`, it returns candidate variables instead of guessing.
 
+When the user or calling AI wants WID's conventional defaults for a broad prompt, pass:
+
+```json
+{
+  "country": "Brazil",
+  "query": "income",
+  "assumption_policy": "wid_default"
+}
+```
+
+That interprets `income` as average pretax national income for equal-split adults over the full adult distribution. The response includes the assumptions and alternative interpretations, so the caller can disclose or revise the choice.
+
 ## Tools
 
-- `wid_get_series`: fetch a series by natural-language metric, built-in alias, or exact WID variable code. Ambiguous natural-language prompts fail with candidate suggestions.
+- `wid_get_series`: fetch a series by natural-language metric, built-in alias, or exact WID variable code. Ambiguous natural-language prompts fail with candidate suggestions unless `assumption_policy` allows a documented default.
 - `wid_search_metrics`: search natural-language metric text against WID code semantics and live country availability.
-- `wid_resolve_metric`: resolve a natural-language metric to one exact WID variable code when confidence is high.
+- `wid_resolve_metric`: resolve a natural-language metric to one exact WID variable code when confidence is high. Returns assumptions, alternatives, and a clarifying question when useful.
 - `wid_search_indicators`: discover available WID variable combinations for countries and indicators.
 - `wid_fetch_data`: fetch exact WID variable codes.
 - `wid_get_metadata`: fetch units, source, method, quality, and description metadata.
@@ -80,6 +92,19 @@ For example, `sptinc_p99p100_992_j` means:
 - `j`: equal-split adults
 
 The server uses WID's public code structure as a dictionary, then verifies possible variables against live WID availability for the requested country. It fetches metadata only for the best candidates, so it does not download or store the WID dataset.
+
+## Assumption Policy
+
+The default policy is `strict`: the server avoids guessing. This is best when the user has not made their meaning clear.
+
+The optional `wid_default` policy is intentionally small. It only lets the resolver use documented defaults for broad but common prompts such as `income`:
+
+- income means average pretax national income
+- percentile means the full adult distribution
+- age means adults
+- population unit means equal-split adults
+
+Risky prompts still require clarification. For example, `income inequality` can mean Gini, top income shares, bottom income shares, or top-to-bottom ratios, so the resolver returns alternatives instead of choosing silently.
 
 ## Setup
 

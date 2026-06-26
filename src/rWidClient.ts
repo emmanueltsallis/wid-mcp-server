@@ -60,7 +60,11 @@ export class RwidClient implements WidDataProvider {
 
   async getSeries(input: GetSeriesInput): Promise<WidSeriesResult> {
     const country = normalizeCountry(input.country);
-    const metric = await this.resolveSeriesMetric(country, input.metric);
+    const { metric, resolution } = await this.resolveSeriesMetric(
+      country,
+      input.metric,
+      input.assumptionPolicy
+    );
     const response = await this.runBridge({
       action: "download",
       countries: [country],
@@ -78,6 +82,7 @@ export class RwidClient implements WidDataProvider {
 
     return {
       metric,
+      ...(resolution ? { resolution } : {}),
       country,
       data: { ...data, rows: data.items },
       metadata
@@ -127,7 +132,7 @@ export class RwidClient implements WidDataProvider {
       ...input,
       country,
       availableVariables: variables,
-      limit: 25,
+      limit: input.assumptionPolicy === "wid_default" ? 3 : 8,
       offset: 0
     });
     const variableCodes = unique(firstPass.items.map((candidate) => candidate.variableCode));
@@ -164,6 +169,7 @@ export class RwidClient implements WidDataProvider {
       country,
       query: input.query,
       candidates: candidates.items,
+      assumptionPolicy: input.assumptionPolicy,
       confidenceThreshold: input.confidenceThreshold
     });
   }
@@ -180,26 +186,31 @@ export class RwidClient implements WidDataProvider {
 
   private async resolveSeriesMetric(
     country: string,
-    metricInput: string
-  ): Promise<MetricDefinition> {
+    metricInput: string,
+    assumptionPolicy: GetSeriesInput["assumptionPolicy"]
+  ): Promise<{ metric: MetricDefinition; resolution?: MetricResolveResult }> {
     const trimmed = metricInput.trim();
     if (isExactVariableCode(trimmed)) {
-      return metricDefinitionFromVariableCode(trimmed.toLowerCase());
+      return { metric: metricDefinitionFromVariableCode(trimmed.toLowerCase()) };
     }
 
     try {
-      return resolveBuiltInMetric(metricInput);
+      return { metric: resolveBuiltInMetric(metricInput) };
     } catch {
       const resolution = await this.resolveMetric({
         country,
         query: metricInput,
+        assumptionPolicy,
         limit: 10,
         offset: 0
       });
       if (resolution.status !== "resolved" || !resolution.selected) {
         throw new Error(metricResolutionErrorMessage(resolution));
       }
-      return metricDefinitionFromCandidate(resolution.selected, metricInput);
+      return {
+        metric: metricDefinitionFromCandidate(resolution.selected, metricInput),
+        resolution
+      };
     }
   }
 
@@ -530,18 +541,38 @@ metadata_from_rows <- function(rows) {
   unique(rows[, keep, drop = FALSE])
 }
 
-metadata_variables <- function() {
-  result <- wid:::get_metadata_variables(
-    unlist(input$countries),
-    unlist(input$variable_codes),
-    report_missing = FALSE
-  )
-  table <- result$response_table
-  if (is.null(table) || nrow(table) == 0) {
+bind_frames_fill <- function(frames) {
+  frames <- frames[!vapply(frames, is.null, logical(1))]
+  frames <- frames[vapply(frames, nrow, integer(1)) > 0]
+  if (length(frames) == 0) {
     return(empty_frame())
   }
-  names(table)[names(table) == "variable"] <- "variable_code"
-  table
+  cols <- unique(unlist(lapply(frames, names), use.names = FALSE))
+  normalized <- lapply(frames, function(frame) {
+    missing <- setdiff(cols, names(frame))
+    for (column in missing) {
+      frame[[column]] <- NA
+    }
+    frame[, cols, drop = FALSE]
+  })
+  do.call(rbind, normalized)
+}
+
+metadata_variables <- function() {
+  frames <- lapply(unlist(input$variable_codes), function(variable_code) {
+    result <- wid:::get_metadata_variables(
+      unlist(input$countries),
+      variable_code,
+      report_missing = FALSE
+    )
+    table <- result$response_table
+    if (is.null(table) || nrow(table) == 0) {
+      return(empty_frame())
+    }
+    names(table)[names(table) == "variable"] <- "variable_code"
+    table
+  })
+  bind_frames_fill(frames)
 }
 
 available_variables <- function() {
@@ -555,10 +586,7 @@ available_variables <- function() {
       frames[[length(frames) + 1]] <- table[, c("indicator", "country", "percentile", "age", "population", "variableCode")]
     }
   }
-  if (length(frames) == 0) {
-    return(empty_frame())
-  }
-  do.call(rbind, frames)
+  bind_frames_fill(frames)
 }
 
 if (identical(input$action, "available_variables")) {

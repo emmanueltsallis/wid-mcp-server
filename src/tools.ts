@@ -28,6 +28,12 @@ import type {
 const ResponseFormatSchema = z.enum(["markdown", "json"]).default("markdown");
 const LimitSchema = z.number().int().min(1).max(1000).default(100);
 const OffsetSchema = z.number().int().min(0).default(0);
+const AssumptionPolicySchema = z
+  .enum(["strict", "wid_default"])
+  .default("strict")
+  .describe(
+    "Use strict to avoid assumptions. Use wid_default to allow documented WID defaults for broad prompts such as 'income'."
+  );
 
 const GetSeriesSchema = z.object({
   country: z
@@ -58,6 +64,7 @@ const GetSeriesSchema = z.object({
     .boolean()
     .default(true)
     .describe("Whether to include WID interpolated/extrapolated values."),
+  assumption_policy: AssumptionPolicySchema.optional(),
   limit: LimitSchema,
   offset: OffsetSchema,
   response_format: ResponseFormatSchema
@@ -118,6 +125,7 @@ const SearchMetricsSchema = z.object({
     .enum(["i", "j", "m", "f", "t", "e"])
     .optional()
     .describe("Optional WID population unit code, e.g. j for equal-split adults."),
+  assumption_policy: AssumptionPolicySchema.optional(),
   limit: LimitSchema,
   offset: OffsetSchema,
   response_format: ResponseFormatSchema
@@ -166,6 +174,7 @@ export function createWidToolHandlers(client: Partial<WidDataProvider>) {
         startYear: input.start_year,
         endYear: input.end_year,
         includeExtrapolations: input.include_extrapolations ?? true,
+        assumptionPolicy: input.assumption_policy,
         limit: input.limit ?? 100,
         offset: input.offset ?? 0
       });
@@ -181,7 +190,8 @@ export function createWidToolHandlers(client: Partial<WidDataProvider>) {
         hasMore: result.data.hasMore,
         nextOffset: result.data.nextOffset,
         rows: result.data.rows,
-        metadata: result.metadata
+        metadata: result.metadata,
+        resolution: result.resolution
       };
 
       return makeToolResponse(
@@ -189,6 +199,7 @@ export function createWidToolHandlers(client: Partial<WidDataProvider>) {
         formatSeriesMarkdown({
           country: result.country,
           metric: result.metric,
+          resolution: result.resolution,
           rows: result.data.rows,
           metadata: result.metadata,
           pagination: result.data
@@ -271,6 +282,7 @@ export function createWidToolHandlers(client: Partial<WidDataProvider>) {
         percentile: input.percentile,
         age: input.age,
         population: input.population,
+        assumptionPolicy: input.assumption_policy,
         limit: input.limit ?? 100,
         offset: input.offset ?? 0
       });
@@ -304,6 +316,7 @@ export function createWidToolHandlers(client: Partial<WidDataProvider>) {
         percentile: input.percentile,
         age: input.age,
         population: input.population,
+        assumptionPolicy: input.assumption_policy,
         confidenceThreshold: input.confidence_threshold,
         limit: input.limit ?? 100,
         offset: input.offset ?? 0
@@ -314,6 +327,10 @@ export function createWidToolHandlers(client: Partial<WidDataProvider>) {
         query: result.query,
         selected: result.selected,
         candidates: result.candidates,
+        assumptionPolicy: result.assumptionPolicy,
+        assumptions: result.assumptions,
+        alternatives: result.alternatives,
+        clarifyingQuestion: result.clarifyingQuestion,
         message: result.message
       };
       return makeToolResponse(

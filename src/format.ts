@@ -38,6 +38,7 @@ export function makeToolResponse<T extends Record<string, unknown>>(
 export function formatSeriesMarkdown(input: {
   country: string;
   metric: MetricDefinition;
+  resolution?: MetricResolveResult;
   rows: WidDataRow[];
   metadata: WidMetadataRecord[];
   pagination: Pick<PaginatedResult<WidDataRow>, "total" | "count" | "hasMore" | "nextOffset">;
@@ -58,6 +59,14 @@ export function formatSeriesMarkdown(input: {
     if (first.unit) lines.push(`Unit: ${first.unit}`);
     if (first.shortName) lines.push(`Series: ${first.shortName}`);
     if (first.source) lines.push(`Source: ${first.source}`);
+    lines.push("");
+  }
+
+  if (input.resolution?.assumptions.length) {
+    lines.push("Assumptions:");
+    for (const assumption of input.resolution.assumptions) {
+      lines.push(`- ${assumption}`);
+    }
     lines.push("");
   }
 
@@ -207,6 +216,31 @@ export function formatMetricResolutionMarkdown(result: MetricResolveResult): str
     result.message,
     ""
   ];
+
+  if (result.assumptions.length > 0) {
+    lines.push("## Assumptions");
+    for (const assumption of result.assumptions) {
+      lines.push(`- ${assumption}`);
+    }
+    lines.push("");
+  }
+
+  if (result.clarifyingQuestion) {
+    lines.push(`Clarifying question: ${result.clarifyingQuestion}`);
+    lines.push("");
+  }
+
+  if (result.alternatives.length > 0) {
+    lines.push("## Alternatives");
+    for (const alternative of result.alternatives) {
+      lines.push(
+        `- ${alternative.label}: ${alternative.description}${
+          alternative.variableCodeHint ? ` Example: \`${alternative.variableCodeHint}\`.` : ""
+        }`
+      );
+    }
+    lines.push("");
+  }
 
   if (result.selected) {
     lines.push(`Selected variable: \`${result.selected.variableCode}\``);
