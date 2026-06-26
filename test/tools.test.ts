@@ -99,6 +99,40 @@ describe("WID MCP tool handlers", () => {
     expect(result.content[0].text).toContain("1980");
   });
 
+  it("passes world market context through high-level series requests", async () => {
+    const client = {
+      getSeries: vi.fn(async () => ({
+        metric,
+        country: "WO-MER",
+        data: {
+          ...page([{ ...dataRow, country: "WO-MER", value: 3.9 }]),
+          rows: [{ ...dataRow, country: "WO-MER", value: 3.9 }]
+        },
+        metadata: []
+      }))
+    };
+    const handlers = createWidToolHandlers(client);
+
+    const result = await handlers.wid_get_series({
+      country: "World",
+      metric: "wealth/income ratio",
+      context: "The user asks for global wealth at market exchange rates.",
+      start_year: 1980
+    });
+
+    expect(client.getSeries).toHaveBeenCalledWith({
+      country: "World",
+      metric: "wealth/income ratio",
+      context: "The user asks for global wealth at market exchange rates.",
+      startYear: 1980,
+      endYear: undefined,
+      includeExtrapolations: true,
+      limit: 100,
+      offset: 0
+    });
+    expect(result.structuredContent.country).toBe("WO-MER");
+  });
+
   it("exposes same-concept fallback details for high-level series", async () => {
     const fallbackRow: WidDataRow = {
       ...dataRow,

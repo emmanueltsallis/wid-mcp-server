@@ -18,9 +18,13 @@ export const COUNTRY_ALIASES: Record<string, string> = {
   "united kingdom": "GB",
   uk: "GB",
   china: "CN",
-  india: "IN",
-  world: "WO"
+  india: "IN"
 };
+
+export const WORLD_REGION_CODES = {
+  ppp: "WO-PPP",
+  mer: "WO-MER"
+} as const;
 
 export const METRIC_DEFINITIONS: MetricDefinition[] = [
   {

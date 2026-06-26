@@ -16,6 +16,25 @@ describe("WID client helpers", () => {
     expect(() => normalizeCountry("Atlantis")).toThrow(/Unknown country/i);
   });
 
+  it("defaults broad world aliases to the PPP world aggregate", () => {
+    expect(normalizeCountry("World")).toBe("WO-PPP");
+    expect(normalizeCountry("global")).toBe("WO-PPP");
+    expect(normalizeCountry("whole world")).toBe("WO-PPP");
+  });
+
+  it("uses the MER world aggregate when prompt context asks for market valuation", () => {
+    expect(
+      normalizeCountry("World", {
+        prompt: "global wealth at market exchange rates"
+      })
+    ).toBe("WO-MER");
+    expect(
+      normalizeCountry("global", {
+        prompt: "compare financial wealth in USD balance sheets"
+      })
+    ).toBe("WO-MER");
+  });
+
   it("resolves the wealth income ratio metric to the WID variable code", () => {
     const metric = resolveMetric("wealth/income ratio");
 
@@ -236,6 +255,79 @@ describe("WID client helpers", () => {
     expect(url).toContain("countries=BR");
     expect(url).toContain("variables=wnweal_p0p100_999_i");
     expect((init.headers as Record<string, string>)["x-api-key"]).toBe("abc123");
+  });
+
+  it("uses MER world code for high-level series when context asks for market valuation", async () => {
+    const fetchMock = vi.fn(async (url: string) => {
+      if (url.includes("/countries-variables?")) {
+        return new Response(
+          JSON.stringify({
+            wnweal_p0p100_999_i: [
+              {
+                "WO-MER": {
+                  meta: { unit: "% of national income" },
+                  values: [{ y: 1980, v: 3.9 }]
+                }
+              }
+            ]
+          }),
+          { status: 200, headers: { "content-type": "application/json" } }
+        );
+      }
+
+      if (url.includes("/countries-variables-metadata?")) {
+        return new Response(
+          JSON.stringify([
+            {
+              metadata_func: [
+                {
+                  wnweal_p0p100_999_i: [
+                    { name: { shortname: "Market-value national wealth" } },
+                    { type: { shortdes: "% of NNI" } },
+                    { pop: { shortdes: "individuals" } },
+                    { age: { shortname: "All Ages" } },
+                    {
+                      units: [
+                        {
+                          country_name: "World",
+                          country: "WO-MER",
+                          metadata: { unit: "% of national income" }
+                        }
+                      ]
+                    },
+                    { notes: [] }
+                  ]
+                }
+              ]
+            }
+          ]),
+          { status: 200, headers: { "content-type": "application/json" } }
+        );
+      }
+
+      throw new Error(`Unexpected URL: ${url}`);
+    });
+    const client = new WidClient({
+      apiKeyBase64: "abc123",
+      fetchFn: fetchMock,
+      cacheTtlMs: 0
+    });
+
+    const result = await client.getSeries({
+      country: "World",
+      metric: "wealth/income ratio",
+      context: "The user asks for global wealth at market exchange rates.",
+      startYear: 1980
+    });
+
+    expect(result.country).toBe("WO-MER");
+    expect(result.data.rows[0]).toMatchObject({
+      country: "WO-MER",
+      value: 3.9
+    });
+    const urls = fetchMock.mock.calls.map(([url]) => String(url));
+    expect(urls).toHaveLength(2);
+    expect(urls.every((url) => url.includes("countries=WO-MER"))).toBe(true);
   });
 
   it("falls back to a same-concept API variable when the requested combo has no rows", async () => {

@@ -12,6 +12,7 @@ import {
   resolveRankedMetricCandidates
 } from "./metricResolver.js";
 import {
+  countryPrompt,
   normalizeCountry,
   resolveMetric as resolveBuiltInMetric
 } from "./widClient.js";
@@ -64,7 +65,9 @@ export class RwidClient implements WidDataProvider {
   }
 
   async getSeries(input: GetSeriesInput): Promise<WidSeriesResult> {
-    const country = normalizeCountry(input.country);
+    const country = normalizeCountry(input.country, {
+      prompt: countryPrompt([input.metric, input.context])
+    });
     let { metric, resolution } = await this.resolveSeriesMetric(
       country,
       input.metric,
@@ -133,7 +136,7 @@ export class RwidClient implements WidDataProvider {
   ): Promise<PaginatedResult<WidDataRow> & { rows: WidDataRow[] }> {
     const response = await this.runBridge({
       action: "download",
-      countries: input.countries.map(normalizeCountry),
+      countries: input.countries.map((country) => normalizeCountry(country)),
       variable_codes: input.variableCodes,
       include_extrapolations: input.includeExtrapolations ?? true,
       metadata: false
@@ -151,7 +154,7 @@ export class RwidClient implements WidDataProvider {
   ): Promise<PaginatedResult<WidMetadataRecord> & { records: WidMetadataRecord[] }> {
     const response = await this.runBridge({
       action: "metadata",
-      countries: input.countries.map(normalizeCountry),
+      countries: input.countries.map((country) => normalizeCountry(country)),
       variable_codes: input.variableCodes,
       include_extrapolations: true,
       metadata: true
@@ -162,7 +165,9 @@ export class RwidClient implements WidDataProvider {
   }
 
   async searchMetrics(input: SearchMetricsInput): Promise<PaginatedResult<MetricCandidate>> {
-    const country = normalizeCountry(input.country);
+    const country = normalizeCountry(input.country, {
+      prompt: countryPrompt([input.query, input.context])
+    });
     const variables = await this.fetchAvailableVariables(
       [country],
       candidateIndicatorsForQuery(input)
@@ -196,7 +201,9 @@ export class RwidClient implements WidDataProvider {
   }
 
   async resolveMetric(input: ResolveMetricInput): Promise<MetricResolveResult> {
-    const country = normalizeCountry(input.country);
+    const country = normalizeCountry(input.country, {
+      prompt: countryPrompt([input.query, input.context])
+    });
     const candidates = await this.searchMetrics({
       ...input,
       country,
@@ -218,7 +225,7 @@ export class RwidClient implements WidDataProvider {
     input: ListVariablesInput
   ): Promise<PaginatedResult<WidAvailableVariable>> {
     const items = await this.fetchAvailableVariables(
-      input.countries.map(normalizeCountry),
+      input.countries.map((country) => normalizeCountry(country)),
       input.indicators
     );
     return paginate(items, input.limit, input.offset);

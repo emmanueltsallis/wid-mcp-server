@@ -67,6 +67,19 @@ That gives the MCP enough information to interpret `income` as average pretax na
 
 If the context says the user is studying top concentration, the resolver steers toward income-share variables instead. If the context is still not enough, the resolver returns a focused clarification question.
 
+## World Region Defaults
+
+WID world aggregates use currency-suffixed region codes:
+
+- `WO-PPP`: world aggregate in PPP (purchasing power parity) terms.
+- `WO-MER`: world aggregate in market-exchange-rate terms.
+
+Broad country aliases such as `World`, `global`, `worldwide`, and `whole world` default to `WO-PPP`, which is the better default for global inequality, real distribution, and purchasing-power comparisons.
+
+When the country is a world alias and the prompt or `context` clearly points to market valuation, the server resolves to `WO-MER` instead. Examples include `market exchange rates`, `market valuation`, `financial wealth`, `USD balance sheets`, `global asset prices`, and explicit `MER` wording.
+
+Callers can bypass this resolver by passing `WO-PPP` or `WO-MER` explicitly.
+
 ## Tools
 
 - `wid_get_series`: fetch a series by natural-language metric, built-in alias, or exact WID variable code. Optional `context` helps resolve broad prompts using conversation context.

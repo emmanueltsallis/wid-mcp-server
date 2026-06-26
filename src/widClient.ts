@@ -4,7 +4,8 @@ import {
   DEFAULT_LIMIT,
   MAX_LIMIT,
   METRIC_DEFINITIONS,
-  WID_API_BASE_URL
+  WID_API_BASE_URL,
+  WORLD_REGION_CODES
 } from "./constants.js";
 import {
   candidateIndicatorsForQuery,
@@ -53,6 +54,10 @@ interface CacheEntry {
   value: unknown;
 }
 
+interface NormalizeCountryOptions {
+  prompt?: string;
+}
+
 export function createApiKeyHeader(
   env: Record<string, string | undefined> = process.env
 ): string {
@@ -74,8 +79,15 @@ export function createApiKeyHeader(
   );
 }
 
-export function normalizeCountry(country: string): string {
+export function normalizeCountry(
+  country: string,
+  options: NormalizeCountryOptions = {}
+): string {
   const trimmed = country.trim();
+  if (/^WO$/i.test(trimmed) || isWorldAlias(trimmed)) {
+    return resolveWorldRegionCode(options.prompt);
+  }
+
   if (/^[A-Za-z]{2}(-[A-Za-z]{2,3})?$/.test(trimmed)) {
     return trimmed.toUpperCase();
   }
@@ -89,6 +101,58 @@ export function normalizeCountry(country: string): string {
   throw new Error(
     `Unknown country "${country}". Use a WID/ISO country code such as BR, FR, US, or add a supported country alias.`
   );
+}
+
+export function resolveWorldRegionCode(prompt: string | undefined): string {
+  return promptHasMarketExchangeContext(prompt)
+    ? WORLD_REGION_CODES.mer
+    : WORLD_REGION_CODES.ppp;
+}
+
+function isWorldAlias(country: string): boolean {
+  const normalized = country.trim().toLowerCase().replace(/\s+/g, " ");
+  return [
+    "world",
+    "global",
+    "globe",
+    "whole world",
+    "entire world",
+    "worldwide"
+  ].includes(normalized);
+}
+
+function promptHasMarketExchangeContext(prompt: string | undefined): boolean {
+  const normalized = prompt?.trim().toLowerCase().replace(/\s+/g, " ") ?? "";
+  if (!normalized) {
+    return false;
+  }
+
+  const phraseMatch = [
+    "market exchange",
+    "market-exchange",
+    "usd market",
+    "current usd",
+    "nominal usd",
+    "market valuation",
+    "market-valued",
+    "market value",
+    "global asset prices",
+    "asset prices",
+    "financial wealth",
+    "balance sheet",
+    "balance sheets",
+    "cross-border purchasing power",
+    "foreign investors"
+  ].some((term) => normalized.includes(term));
+  return phraseMatch || /\bmer\b/.test(normalized);
+}
+
+export function countryPrompt(parts: Array<string | undefined>): string | undefined {
+  const prompt = parts
+    .map((part) => part?.trim())
+    .filter((part): part is string => Boolean(part))
+    .join(" ");
+  return prompt || undefined;
 }
 
 export function resolveMetric(metric: string): MetricDefinition {
@@ -325,7 +389,7 @@ export class WidClient implements WidDataProvider {
     input: ListVariablesInput
   ): Promise<PaginatedResult<WidAvailableVariable>> {
     const variables = await this.fetchAvailableVariables(
-      input.countries.map(normalizeCountry),
+      input.countries.map((country) => normalizeCountry(country)),
       input.indicators
     );
     return paginate(variables, input.limit, input.offset);
@@ -333,7 +397,7 @@ export class WidClient implements WidDataProvider {
 
   async fetchData(input: FetchDataInput): Promise<PaginatedResult<WidDataRow> & { rows: WidDataRow[] }> {
     const payload = await this.requestJson("countries-variables", {
-      countries: input.countries.map(normalizeCountry).join(","),
+      countries: input.countries.map((country) => normalizeCountry(country)).join(","),
       variables: input.variableCodes.join(","),
       years: "all"
     });
@@ -356,7 +420,7 @@ export class WidClient implements WidDataProvider {
     input: GetMetadataInput
   ): Promise<PaginatedResult<WidMetadataRecord> & { records: WidMetadataRecord[] }> {
     const payload = await this.requestJson("countries-variables-metadata", {
-      countries: input.countries.map(normalizeCountry).join(","),
+      countries: input.countries.map((country) => normalizeCountry(country)).join(","),
       variables: input.variableCodes.join(",")
     });
     const records = parseWidMetadataResponse(payload);
@@ -365,7 +429,9 @@ export class WidClient implements WidDataProvider {
   }
 
   async searchMetrics(input: SearchMetricsInput): Promise<PaginatedResult<MetricCandidate>> {
-    const country = normalizeCountry(input.country);
+    const country = normalizeCountry(input.country, {
+      prompt: countryPrompt([input.query, input.context])
+    });
     const indicators = candidateIndicatorsForQuery(input);
     const variables = await this.fetchAvailableVariables([country], indicators);
     const firstPass = rankMetricCandidates({
@@ -397,7 +463,9 @@ export class WidClient implements WidDataProvider {
   }
 
   async resolveMetric(input: ResolveMetricInput): Promise<MetricResolveResult> {
-    const country = normalizeCountry(input.country);
+    const country = normalizeCountry(input.country, {
+      prompt: countryPrompt([input.query, input.context])
+    });
     const candidates = await this.searchMetrics({
       ...input,
       country,
@@ -416,7 +484,9 @@ export class WidClient implements WidDataProvider {
   }
 
   async getSeries(input: GetSeriesInput): Promise<WidSeriesResult> {
-    const country = normalizeCountry(input.country);
+    const country = normalizeCountry(input.country, {
+      prompt: countryPrompt([input.metric, input.context])
+    });
     let { metric, resolution } = await this.resolveSeriesMetric(
       country,
       input.metric,

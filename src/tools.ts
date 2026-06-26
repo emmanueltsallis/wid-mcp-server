@@ -1,7 +1,7 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 
-import { METRIC_DEFINITIONS } from "./constants.js";
+import { METRIC_DEFINITIONS, WORLD_REGION_CODES } from "./constants.js";
 import {
   formatAvailableVariablesMarkdown,
   formatMetadataMarkdown,
@@ -405,6 +405,23 @@ export function createWidToolHandlers(client: Partial<WidDataProvider>) {
     ): Promise<ToolResponse<Record<string, unknown>>> {
       const structuredContent = {
         metrics: METRIC_DEFINITIONS,
+        worldRegions: {
+          default: WORLD_REGION_CODES.ppp,
+          alternatives: [
+            {
+              code: WORLD_REGION_CODES.ppp,
+              label: "World, PPP valuation",
+              useWhen:
+                "Default for broad global inequality, real distribution, and purchasing-power comparisons."
+            },
+            {
+              code: WORLD_REGION_CODES.mer,
+              label: "World, market-exchange-rate valuation",
+              useWhen:
+                "Use for market valuation, financial wealth, USD balance sheets, global asset prices, or explicit MER requests."
+            }
+          ]
+        },
         examples: [
           {
             question: "What is the wealth/income ratio of Brazil from 1980 up to now?",
@@ -423,6 +440,11 @@ export function createWidToolHandlers(client: Partial<WidDataProvider>) {
         "# WID Code Guide",
         "",
         "Use `wid_get_series` for common plain-language metrics.",
+        "",
+        "## World Region Codes",
+        `- Broad aliases such as \`World\`, \`global\`, and \`whole world\` default to \`${WORLD_REGION_CODES.ppp}\`.`,
+        `- Use \`${WORLD_REGION_CODES.mer}\` for market-exchange-rate valuation, financial wealth, USD balance sheets, or global asset-price questions.`,
+        `- If a world alias is paired with market-valuation context, the server resolves it to \`${WORLD_REGION_CODES.mer}\`; otherwise it resolves to \`${WORLD_REGION_CODES.ppp}\`.`,
         "",
         "## Built-in Metrics",
         ...METRIC_DEFINITIONS.flatMap((definition) => [
