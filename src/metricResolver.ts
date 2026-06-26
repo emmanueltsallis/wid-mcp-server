@@ -25,6 +25,12 @@ const WID_DEFAULT_INCOME_ASSUMPTIONS = [
   "age means adults",
   "population unit means equal-split adults"
 ];
+const CONTEXT_DEFAULT_INCOME_ASSUMPTIONS = [
+  "context indicates average pretax national income",
+  "percentile means the full adult distribution",
+  "age means adults",
+  "population unit means equal-split adults"
+];
 const INCOME_ALTERNATIVES: MetricResolutionAlternative[] = [
   {
     label: "income inequality",
@@ -93,6 +99,8 @@ interface DictionaryEntry {
 }
 
 interface ParsedMetricQuery {
+  normalizedMetric: string;
+  normalizedContext: string;
   normalizedQuery: string;
   assumptionPolicy: AssumptionPolicy;
   exactVariableCode?: string;
@@ -344,6 +352,7 @@ export function isExactVariableCode(value: string): boolean {
 
 export function candidateIndicatorsForQuery(input: {
   query: string;
+  context?: string;
   percentile?: string;
   age?: string;
   population?: string;
@@ -355,6 +364,10 @@ export function candidateIndicatorsForQuery(input: {
   }
 
   if (isBroadIncomeDefaultable(parsed.normalizedQuery, parsed.assumptionPolicy)) {
+    return ["aptinc"];
+  }
+
+  if (isContextIncomeDefaultable(parsed.normalizedMetric, parsed.normalizedContext)) {
     return ["aptinc"];
   }
 
@@ -449,6 +462,7 @@ export function resolveMetricCandidate(input: SearchMetricsInput & {
   return resolveRankedMetricCandidates({
     country: input.country,
     query: input.query,
+    context: input.context,
     candidates: page.items,
     assumptionPolicy: input.assumptionPolicy,
     confidenceThreshold: input.confidenceThreshold
@@ -458,16 +472,22 @@ export function resolveMetricCandidate(input: SearchMetricsInput & {
 export function resolveRankedMetricCandidates(input: {
   country: string;
   query: string;
+  context?: string;
   candidates: MetricCandidate[];
   assumptionPolicy?: AssumptionPolicy;
   confidenceThreshold?: number;
 }): MetricResolveResult {
-  const steering = getQuerySteering(input.query, input.assumptionPolicy);
+  const steering = getQuerySteering({
+    query: input.query,
+    context: input.context,
+    requestedPolicy: input.assumptionPolicy
+  });
   if (input.candidates.length === 0) {
     return {
       status: "not_found",
       country: input.country,
       query: input.query,
+      ...(input.context ? { context: input.context } : {}),
       candidates: [],
       assumptionPolicy: steering.assumptionPolicy,
       assumptions: steering.assumptions,
@@ -489,6 +509,7 @@ export function resolveRankedMetricCandidates(input: {
       status: "resolved",
       country: input.country,
       query: input.query,
+      ...(input.context ? { context: input.context } : {}),
       selected: top,
       candidates: input.candidates,
       assumptionPolicy: steering.assumptionPolicy,
@@ -508,6 +529,7 @@ export function resolveRankedMetricCandidates(input: {
     status: "ambiguous",
     country: input.country,
     query: input.query,
+    ...(input.context ? { context: input.context } : {}),
     candidates: input.candidates,
     assumptionPolicy: steering.assumptionPolicy,
     assumptions: steering.assumptions,
@@ -568,12 +590,15 @@ export function metricResolutionErrorMessage(result: MetricResolveResult): strin
 
 function parseMetricQuery(input: {
   query: string;
+  context?: string;
   percentile?: string;
   age?: string;
   population?: string;
   assumptionPolicy?: AssumptionPolicy;
 }): ParsedMetricQuery {
-  const normalizedQuery = normalizeText(input.query);
+  const normalizedMetric = normalizeText(input.query);
+  const normalizedContext = normalizeText(input.context ?? "");
+  const normalizedQuery = normalizeText([input.query, input.context].filter(Boolean).join(" "));
   const assumptionPolicy = input.assumptionPolicy ?? "strict";
   const exactVariableCode = extractExactVariableCode(input.query);
   const explicitIndicators = extractExplicitIndicators(input.query);
@@ -582,6 +607,8 @@ function parseMetricQuery(input: {
 
   addFallbacks(normalizedQuery, seriesTypes, concepts);
   applyAssumptionPolicy({
+    normalizedMetric,
+    normalizedContext,
     normalizedQuery,
     assumptionPolicy,
     seriesTypes,
@@ -589,6 +616,8 @@ function parseMetricQuery(input: {
   });
 
   return {
+    normalizedMetric,
+    normalizedContext,
     normalizedQuery,
     assumptionPolicy,
     ...(exactVariableCode ? { exactVariableCode } : {}),
@@ -597,19 +626,34 @@ function parseMetricQuery(input: {
     concepts: mergeHints(concepts),
     percentiles: mergeHints([
       ...parsePercentiles(normalizedQuery),
-      ...defaultPolicyPercentiles(normalizedQuery, assumptionPolicy),
+      ...defaultPolicyPercentiles({
+        normalizedMetric,
+        normalizedContext,
+        normalizedQuery,
+        assumptionPolicy
+      }),
       ...(input.percentile
         ? [{ code: input.percentile, score: 40, matchedFields: [`percentile: ${input.percentile}`] }]
         : [])
     ]),
     ages: mergeHints([
       ...parseAges(normalizedQuery),
-      ...defaultPolicyAges(normalizedQuery, assumptionPolicy),
+      ...defaultPolicyAges({
+        normalizedMetric,
+        normalizedContext,
+        normalizedQuery,
+        assumptionPolicy
+      }),
       ...(input.age ? [{ code: input.age, score: 35, matchedFields: [`age: ${input.age}`] }] : [])
     ]),
     populations: mergeHints([
       ...parsePopulations(normalizedQuery),
-      ...defaultPolicyPopulations(normalizedQuery, assumptionPolicy),
+      ...defaultPolicyPopulations({
+        normalizedMetric,
+        normalizedContext,
+        normalizedQuery,
+        assumptionPolicy
+      }),
       ...(input.population
         ? [{ code: input.population, score: 35, matchedFields: [`population: ${input.population}`] }]
         : [])
@@ -714,12 +758,17 @@ function addFallbacks(
 }
 
 function applyAssumptionPolicy(input: {
+  normalizedMetric: string;
+  normalizedContext: string;
   normalizedQuery: string;
   assumptionPolicy: AssumptionPolicy;
   seriesTypes: WeightedHint[];
   concepts: WeightedHint[];
 }): void {
-  if (!isBroadIncomeDefaultable(input.normalizedQuery, input.assumptionPolicy)) {
+  if (
+    !isBroadIncomeDefaultable(input.normalizedQuery, input.assumptionPolicy) &&
+    !isContextIncomeDefaultable(input.normalizedMetric, input.normalizedContext)
+  ) {
     return;
   }
 
@@ -731,45 +780,66 @@ function applyAssumptionPolicy(input: {
   );
 }
 
-function defaultPolicyPercentiles(
-  normalizedQuery: string,
-  assumptionPolicy: AssumptionPolicy
-): WeightedHint[] {
-  return isBroadIncomeDefaultable(normalizedQuery, assumptionPolicy)
+function defaultPolicyPercentiles(input: {
+  normalizedMetric: string;
+  normalizedContext: string;
+  normalizedQuery: string;
+  assumptionPolicy: AssumptionPolicy;
+}): WeightedHint[] {
+  return isBroadIncomeDefaultable(input.normalizedQuery, input.assumptionPolicy) ||
+    isContextIncomeDefaultable(input.normalizedMetric, input.normalizedContext)
     ? [hint("p0p100", 80, "assumption: full distribution")]
     : [];
 }
 
-function defaultPolicyAges(
-  normalizedQuery: string,
-  assumptionPolicy: AssumptionPolicy
-): WeightedHint[] {
-  return isBroadIncomeDefaultable(normalizedQuery, assumptionPolicy)
+function defaultPolicyAges(input: {
+  normalizedMetric: string;
+  normalizedContext: string;
+  normalizedQuery: string;
+  assumptionPolicy: AssumptionPolicy;
+}): WeightedHint[] {
+  return isBroadIncomeDefaultable(input.normalizedQuery, input.assumptionPolicy) ||
+    isContextIncomeDefaultable(input.normalizedMetric, input.normalizedContext)
     ? [hint("992", 80, "assumption: adults")]
     : [];
 }
 
-function defaultPolicyPopulations(
-  normalizedQuery: string,
-  assumptionPolicy: AssumptionPolicy
-): WeightedHint[] {
-  return isBroadIncomeDefaultable(normalizedQuery, assumptionPolicy)
+function defaultPolicyPopulations(input: {
+  normalizedMetric: string;
+  normalizedContext: string;
+  normalizedQuery: string;
+  assumptionPolicy: AssumptionPolicy;
+}): WeightedHint[] {
+  return isBroadIncomeDefaultable(input.normalizedQuery, input.assumptionPolicy) ||
+    isContextIncomeDefaultable(input.normalizedMetric, input.normalizedContext)
     ? [hint("j", 80, "assumption: equal-split adults")]
     : [];
 }
 
-function getQuerySteering(
-  query: string,
-  requestedPolicy: AssumptionPolicy | undefined
-): {
+function getQuerySteering(input: {
+  query: string;
+  context?: string;
+  requestedPolicy: AssumptionPolicy | undefined;
+}): {
   assumptionPolicy: AssumptionPolicy;
   assumptions: string[];
   alternatives: MetricResolutionAlternative[];
   clarifyingQuestion?: string;
   forceClarification: boolean;
 } {
-  const assumptionPolicy = requestedPolicy ?? "strict";
-  const normalizedQuery = normalizeText(query);
+  const assumptionPolicy = input.requestedPolicy ?? "strict";
+  const normalizedMetric = normalizeText(input.query);
+  const normalizedContext = normalizeText(input.context ?? "");
+  const normalizedQuery = normalizeText([input.query, input.context].filter(Boolean).join(" "));
+
+  if (isContextIncomeDefaultable(normalizedMetric, normalizedContext)) {
+    return {
+      assumptionPolicy,
+      assumptions: CONTEXT_DEFAULT_INCOME_ASSUMPTIONS,
+      alternatives: INCOME_ALTERNATIVES,
+      forceClarification: false
+    };
+  }
 
   if (isRiskyIncomeInequalityPrompt(normalizedQuery)) {
     return {
@@ -815,6 +885,50 @@ function isBroadIncomeDefaultable(
   assumptionPolicy: AssumptionPolicy
 ): boolean {
   return assumptionPolicy === "wid_default" && isBroadIncomePrompt(normalizedQuery);
+}
+
+function isContextIncomeDefaultable(
+  normalizedMetric: string,
+  normalizedContext: string
+): boolean {
+  if (!normalizedContext || !isBroadIncomePrompt(normalizedMetric)) {
+    return false;
+  }
+
+  const positiveSignal =
+    phraseInText(normalizedContext, "average") ||
+    phraseInText(normalizedContext, "mean") ||
+    phraseInText(normalizedContext, "income level") ||
+    phraseInText(normalizedContext, "income levels") ||
+    phraseInText(normalizedContext, "average income") ||
+    phraseInText(normalizedContext, "comparing income") ||
+    phraseInText(normalizedContext, "compare income") ||
+    phraseInText(normalizedContext, "across countries") ||
+    phraseInText(normalizedContext, "between countries");
+
+  if (!positiveSignal) {
+    return false;
+  }
+
+  const conflictingSignal =
+    positivePhrase(normalizedContext, "inequality") ||
+    positivePhrase(normalizedContext, "distribution") ||
+    positivePhrase(normalizedContext, "share") ||
+    positivePhrase(normalizedContext, "shares") ||
+    positivePhrase(normalizedContext, "top") ||
+    positivePhrase(normalizedContext, "bottom") ||
+    positivePhrase(normalizedContext, "gini") ||
+    positivePhrase(normalizedContext, "labor") ||
+    positivePhrase(normalizedContext, "labour") ||
+    positivePhrase(normalizedContext, "capital") ||
+    positivePhrase(normalizedContext, "post tax") ||
+    positivePhrase(normalizedContext, "post-tax") ||
+    positivePhrase(normalizedContext, "after tax") ||
+    positivePhrase(normalizedContext, "after-tax") ||
+    positivePhrase(normalizedContext, "disposable") ||
+    positivePhrase(normalizedContext, "fiscal");
+
+  return !conflictingSignal;
 }
 
 function isBroadIncomePrompt(normalizedQuery: string): boolean {
@@ -1108,6 +1222,15 @@ function phraseInText(normalizedText: string, rawPhrase: string): boolean {
   }
   const pattern = new RegExp(`(^|\\s)${escapeRegExp(phrase)}(\\s|$)`);
   return pattern.test(normalizedText);
+}
+
+function positivePhrase(normalizedText: string, rawPhrase: string): boolean {
+  const phrase = normalizeText(rawPhrase);
+  return (
+    phraseInText(normalizedText, phrase) &&
+    !phraseInText(normalizedText, `not ${phrase}`) &&
+    !phraseInText(normalizedText, `not ${phrase}s`)
+  );
 }
 
 function mergeHints(hints: WeightedHint[]): WeightedHint[] {

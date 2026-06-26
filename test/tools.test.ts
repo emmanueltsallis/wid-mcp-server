@@ -292,6 +292,54 @@ describe("WID MCP tool handlers", () => {
     expect(result.content[0].text).toContain("Assumptions");
   });
 
+  it("passes conversation context through metric resolution", async () => {
+    const resolution: MetricResolveResult = {
+      status: "resolved",
+      country: "BR",
+      query: "income",
+      selected: {
+        ...metricCandidate,
+        variableCode: "aptinc_p0p100_992_j",
+        indicator: "aptinc",
+        description: "Average pretax national income received by equal-split adults."
+      },
+      candidates: [],
+      assumptionPolicy: "strict",
+      assumptions: [
+        "context indicates average pretax national income",
+        "percentile means the full adult distribution",
+        "age means adults",
+        "population unit means equal-split adults"
+      ],
+      alternatives: [],
+      message: "Resolved to aptinc_p0p100_992_j using context."
+    };
+    const client = {
+      resolveMetric: vi.fn(async () => resolution)
+    };
+    const handlers = createWidToolHandlers(client);
+
+    await handlers.wid_resolve_metric({
+      country: "Brazil",
+      query: "income",
+      conversation_context:
+        "The user is comparing average income levels across countries."
+    });
+
+    expect(client.resolveMetric).toHaveBeenCalledWith({
+      country: "Brazil",
+      query: "income",
+      context: "The user is comparing average income levels across countries.",
+      percentile: undefined,
+      age: undefined,
+      population: undefined,
+      assumptionPolicy: undefined,
+      confidenceThreshold: undefined,
+      limit: 100,
+      offset: 0
+    });
+  });
+
   it("explains built-in WID aliases without calling the live client", async () => {
     const handlers = createWidToolHandlers({});
 

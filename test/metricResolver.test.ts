@@ -159,6 +159,44 @@ describe("WID metric resolver", () => {
     );
   });
 
+  it("uses conversation context to resolve broad income prompts without an explicit policy", () => {
+    const result = resolveMetricCandidate({
+      country: "BR",
+      query: "income",
+      context:
+        "The user is comparing average income levels across countries.",
+      availableVariables,
+      metadata
+    });
+
+    expect(result.status).toBe("resolved");
+    expect(result.selected?.variableCode).toBe("aptinc_p0p100_992_j");
+    expect(result.assumptionPolicy).toBe("strict");
+    expect(result.assumptions).toEqual([
+      "context indicates average pretax national income",
+      "percentile means the full adult distribution",
+      "age means adults",
+      "population unit means equal-split adults"
+    ]);
+    expect(result.alternatives.map((alternative) => alternative.label)).toContain(
+      "income inequality"
+    );
+  });
+
+  it("uses context details to resolve a broad metric to a specific income share", () => {
+    const result = resolveMetricCandidate({
+      country: "BR",
+      query: "income",
+      context: "We are studying the top 1% pre-tax income share.",
+      availableVariables,
+      metadata
+    });
+
+    expect(result.status).toBe("resolved");
+    expect(result.selected?.variableCode).toBe("sptinc_p99p100_992_j");
+    expect(result.assumptions).toEqual([]);
+  });
+
   it("keeps risky inequality prompts ambiguous even with WID defaults", () => {
     const result = resolveMetricCandidate({
       country: "BR",

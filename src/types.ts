@@ -67,6 +67,7 @@ export interface MetricCandidate {
 export interface SearchMetricsInput {
   country: string;
   query: string;
+  context?: string;
   percentile?: string;
   age?: string;
   population?: string;
@@ -83,6 +84,7 @@ export interface MetricResolveResult {
   status: "resolved" | "ambiguous" | "not_found";
   country: string;
   query: string;
+  context?: string;
   selected?: MetricCandidate;
   candidates: MetricCandidate[];
   assumptionPolicy: AssumptionPolicy;
@@ -134,6 +136,7 @@ export interface GetMetadataInput {
 export interface GetSeriesInput {
   country: string;
   metric: string;
+  context?: string;
   startYear?: number;
   endYear?: number;
   includeExtrapolations?: boolean;

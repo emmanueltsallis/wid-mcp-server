@@ -53,23 +53,25 @@ For less obvious prompts, ask the MCP to resolve first:
 
 `wid_resolve_metric` returns one exact WID variable code only when confidence is high. If a prompt is broad, such as `income`, it returns candidate variables instead of guessing.
 
-When the user or calling AI wants WID's conventional defaults for a broad prompt, pass:
+For broad prompts, the AI client should pass short context distilled from the conversation:
 
 ```json
 {
   "country": "Brazil",
   "query": "income",
-  "assumption_policy": "wid_default"
+  "context": "The user is comparing average income levels across countries."
 }
 ```
 
-That interprets `income` as average pretax national income for equal-split adults over the full adult distribution. The response includes the assumptions and alternative interpretations, so the caller can disclose or revise the choice.
+That gives the MCP enough information to interpret `income` as average pretax national income for equal-split adults over the full adult distribution. The response includes the interpretation and alternatives, so the caller can disclose or revise the choice.
+
+If the context says the user is studying top concentration, the resolver steers toward income-share variables instead. If the context is still not enough, the resolver returns a focused clarification question.
 
 ## Tools
 
-- `wid_get_series`: fetch a series by natural-language metric, built-in alias, or exact WID variable code. Ambiguous natural-language prompts fail with candidate suggestions unless `assumption_policy` allows a documented default.
+- `wid_get_series`: fetch a series by natural-language metric, built-in alias, or exact WID variable code. Optional `context` helps resolve broad prompts using conversation context.
 - `wid_search_metrics`: search natural-language metric text against WID code semantics and live country availability.
-- `wid_resolve_metric`: resolve a natural-language metric to one exact WID variable code when confidence is high. Returns assumptions, alternatives, and a clarifying question when useful.
+- `wid_resolve_metric`: resolve a natural-language metric to one exact WID variable code when confidence is high. Returns interpretation assumptions, alternatives, and a clarifying question when useful.
 - `wid_search_indicators`: discover available WID variable combinations for countries and indicators.
 - `wid_fetch_data`: fetch exact WID variable codes.
 - `wid_get_metadata`: fetch units, source, method, quality, and description metadata.
@@ -93,18 +95,26 @@ For example, `sptinc_p99p100_992_j` means:
 
 The server uses WID's public code structure as a dictionary, then verifies possible variables against live WID availability for the requested country. It fetches metadata only for the best candidates, so it does not download or store the WID dataset.
 
-## Assumption Policy
+## Context and Clarification
 
-The default policy is `strict`: the server avoids guessing. This is best when the user has not made their meaning clear.
+The MCP server does not automatically see the full chat history. The AI client should pass a short `context` string when the user's metric is broad.
 
-The optional `wid_default` policy is intentionally small. It only lets the resolver use documented defaults for broad but common prompts such as `income`:
+Good context examples:
+
+- `The user is comparing average income levels across countries.`
+- `The user is studying the top 1% pre-tax income share.`
+- `The user is asking about income inequality but has not chosen Gini or top shares yet.`
+
+With enough context, the resolver fetches the likely variable and returns the assumptions. For average income context, those assumptions are:
 
 - income means average pretax national income
 - percentile means the full adult distribution
 - age means adults
 - population unit means equal-split adults
 
-Risky prompts still require clarification. For example, `income inequality` can mean Gini, top income shares, bottom income shares, or top-to-bottom ratios, so the resolver returns alternatives instead of choosing silently.
+Without enough context, broad prompts require clarification. For example, `income inequality` can mean Gini, top income shares, bottom income shares, or top-to-bottom ratios, so the resolver returns alternatives instead of choosing silently.
+
+`assumption_policy` is still accepted for backward compatibility, but new clients should prefer `context`.
 
 ## Setup
 

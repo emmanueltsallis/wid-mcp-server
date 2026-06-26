@@ -63,6 +63,7 @@ export class RwidClient implements WidDataProvider {
     const { metric, resolution } = await this.resolveSeriesMetric(
       country,
       input.metric,
+      input.context,
       input.assumptionPolicy
     );
     const response = await this.runBridge({
@@ -168,6 +169,7 @@ export class RwidClient implements WidDataProvider {
     return resolveRankedMetricCandidates({
       country,
       query: input.query,
+      context: input.context,
       candidates: candidates.items,
       assumptionPolicy: input.assumptionPolicy,
       confidenceThreshold: input.confidenceThreshold
@@ -187,6 +189,7 @@ export class RwidClient implements WidDataProvider {
   private async resolveSeriesMetric(
     country: string,
     metricInput: string,
+    context: GetSeriesInput["context"],
     assumptionPolicy: GetSeriesInput["assumptionPolicy"]
   ): Promise<{ metric: MetricDefinition; resolution?: MetricResolveResult }> {
     const trimmed = metricInput.trim();
@@ -200,6 +203,7 @@ export class RwidClient implements WidDataProvider {
       const resolution = await this.resolveMetric({
         country,
         query: metricInput,
+        context,
         assumptionPolicy,
         limit: 10,
         offset: 0

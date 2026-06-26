@@ -46,6 +46,18 @@ const GetSeriesSchema = z.object({
     .describe(
       "Plain-language metric, built-in alias, or exact WID variable code, e.g. 'wealth/income ratio', 'top 1% pre-tax income share', or 'wnweal_p0p100_999_i'."
     ),
+  context: z
+    .string()
+    .min(1)
+    .optional()
+    .describe(
+      "Optional short context from the conversation to disambiguate broad metrics, e.g. 'comparing average income levels across countries'."
+    ),
+  conversation_context: z
+    .string()
+    .min(1)
+    .optional()
+    .describe("Alias for context."),
   start_year: z
     .number()
     .int()
@@ -111,6 +123,18 @@ const SearchMetricsSchema = z.object({
     .string()
     .min(1)
     .describe("Natural-language metric query or exact WID variable code."),
+  context: z
+    .string()
+    .min(1)
+    .optional()
+    .describe(
+      "Optional short context from the conversation to disambiguate broad metrics, e.g. 'comparing average income levels across countries'."
+    ),
+  conversation_context: z
+    .string()
+    .min(1)
+    .optional()
+    .describe("Alias for context."),
   percentile: z
     .string()
     .regex(/^p[0-9.]+(p[0-9.]+)?$/)
@@ -171,6 +195,7 @@ export function createWidToolHandlers(client: Partial<WidDataProvider>) {
       const result = await client.getSeries({
         country: input.country,
         metric: input.metric,
+        context: input.context ?? input.conversation_context,
         startYear: input.start_year,
         endYear: input.end_year,
         includeExtrapolations: input.include_extrapolations ?? true,
@@ -279,6 +304,7 @@ export function createWidToolHandlers(client: Partial<WidDataProvider>) {
       const result = await client.searchMetrics({
         country: input.country,
         query: input.query,
+        context: input.context ?? input.conversation_context,
         percentile: input.percentile,
         age: input.age,
         population: input.population,
@@ -313,6 +339,7 @@ export function createWidToolHandlers(client: Partial<WidDataProvider>) {
       const result = await client.resolveMetric({
         country: input.country,
         query: input.query,
+        context: input.context ?? input.conversation_context,
         percentile: input.percentile,
         age: input.age,
         population: input.population,
@@ -325,6 +352,7 @@ export function createWidToolHandlers(client: Partial<WidDataProvider>) {
         status: result.status,
         country: result.country,
         query: result.query,
+        context: result.context,
         selected: result.selected,
         candidates: result.candidates,
         assumptionPolicy: result.assumptionPolicy,
