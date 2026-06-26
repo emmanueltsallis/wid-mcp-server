@@ -15,6 +15,11 @@ import {
   rankMetricCandidates,
   resolveRankedMetricCandidates
 } from "./metricResolver.js";
+import {
+  availableVariablesToFallbackCandidates,
+  buildSeriesFallback,
+  sameConceptFallbackCandidates
+} from "./seriesFallback.js";
 import type {
   FetchDataInput,
   GetMetadataInput,
@@ -29,7 +34,8 @@ import type {
   WidAvailableVariable,
   WidDataProvider,
   WidDataRow,
-  WidMetadataRecord
+  WidMetadataRecord,
+  WidSeriesResult
 } from "./types.js";
 
 type FetchFn = typeof fetch;
@@ -409,21 +415,15 @@ export class WidClient implements WidDataProvider {
     });
   }
 
-  async getSeries(input: GetSeriesInput): Promise<{
-    metric: MetricDefinition;
-    resolution?: MetricResolveResult;
-    country: string;
-    data: PaginatedResult<WidDataRow> & { rows: WidDataRow[] };
-    metadata: WidMetadataRecord[];
-  }> {
+  async getSeries(input: GetSeriesInput): Promise<WidSeriesResult> {
     const country = normalizeCountry(input.country);
-    const { metric, resolution } = await this.resolveSeriesMetric(
+    let { metric, resolution } = await this.resolveSeriesMetric(
       country,
       input.metric,
       input.context,
       input.assumptionPolicy
     );
-    const data = await this.fetchData({
+    let data = await this.fetchData({
       countries: [country],
       variableCodes: [metric.variableCode],
       startYear: input.startYear,
@@ -432,6 +432,27 @@ export class WidClient implements WidDataProvider {
       limit: input.limit,
       offset: input.offset
     });
+    let fallback;
+
+    if (data.total === 0) {
+      const fallbackResult = await this.tryNoRowsFallback({
+        country,
+        metric,
+        metricInput: input.metric,
+        resolution,
+        startYear: input.startYear,
+        endYear: input.endYear,
+        includeExtrapolations: input.includeExtrapolations,
+        limit: input.limit,
+        offset: input.offset
+      });
+      if (fallbackResult) {
+        metric = fallbackResult.metric;
+        data = fallbackResult.data;
+        fallback = fallbackResult.fallback;
+      }
+    }
+
     const metadata = await this.getMetadata({
       countries: [country],
       variableCodes: [metric.variableCode],
@@ -442,6 +463,7 @@ export class WidClient implements WidDataProvider {
     return {
       metric,
       ...(resolution ? { resolution } : {}),
+      ...(fallback ? { fallback } : {}),
       country,
       data,
       metadata: metadata.records
@@ -478,6 +500,96 @@ export class WidClient implements WidDataProvider {
         resolution
       };
     }
+  }
+
+  private async tryNoRowsFallback(input: {
+    country: string;
+    metric: MetricDefinition;
+    metricInput: string;
+    resolution?: MetricResolveResult;
+    startYear?: number;
+    endYear?: number;
+    includeExtrapolations?: boolean;
+    limit?: number;
+    offset?: number;
+  }): Promise<
+    | {
+        metric: MetricDefinition;
+        data: PaginatedResult<WidDataRow> & { rows: WidDataRow[] };
+        fallback: WidSeriesResult["fallback"];
+      }
+    | undefined
+  > {
+    const resolutionCandidates = sameConceptFallbackCandidates(
+      input.metric.variableCode,
+      input.resolution?.candidates ?? []
+    );
+    const fromResolution = await this.tryFallbackCandidates(input, resolutionCandidates);
+    if (fromResolution) {
+      return fromResolution;
+    }
+
+    const variables = await this.fetchAvailableVariables(
+      [input.country],
+      [input.metric.indicator]
+    );
+    return this.tryFallbackCandidates(
+      input,
+      availableVariablesToFallbackCandidates(input.metric.variableCode, variables)
+    );
+  }
+
+  private async tryFallbackCandidates(
+    input: {
+      country: string;
+      metric: MetricDefinition;
+      metricInput: string;
+      startYear?: number;
+      endYear?: number;
+      includeExtrapolations?: boolean;
+      limit?: number;
+      offset?: number;
+    },
+    candidates: MetricCandidate[]
+  ): Promise<
+    | {
+        metric: MetricDefinition;
+        data: PaginatedResult<WidDataRow> & { rows: WidDataRow[] };
+        fallback: WidSeriesResult["fallback"];
+      }
+    | undefined
+  > {
+    const seen = new Set<string>();
+    for (const candidate of candidates) {
+      if (seen.has(candidate.variableCode)) {
+        continue;
+      }
+      seen.add(candidate.variableCode);
+
+      const data = await this.fetchData({
+        countries: [input.country],
+        variableCodes: [candidate.variableCode],
+        startYear: input.startYear,
+        endYear: input.endYear,
+        includeExtrapolations: input.includeExtrapolations,
+        limit: input.limit,
+        offset: input.offset
+      });
+      if (data.total === 0) {
+        continue;
+      }
+
+      return {
+        metric: metricDefinitionFromCandidate(candidate, input.metricInput),
+        data,
+        fallback: buildSeriesFallback(
+          input.metric.variableCode,
+          candidate.variableCode
+        )
+      };
+    }
+
+    return undefined;
   }
 
   private async fetchAvailableVariables(

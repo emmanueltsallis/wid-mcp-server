@@ -99,6 +99,58 @@ describe("WID MCP tool handlers", () => {
     expect(result.content[0].text).toContain("1980");
   });
 
+  it("exposes same-concept fallback details for high-level series", async () => {
+    const fallbackRow: WidDataRow = {
+      ...dataRow,
+      variableCode: "sptinc_p99p100_992_i",
+      indicator: "sptinc",
+      percentile: "p99p100",
+      population: "i",
+      value: 0.16,
+      unit: "fraction"
+    };
+    const fallbackMetric: MetricDefinition = {
+      id: "sptinc_p99p100_992_i",
+      aliases: ["sptinc_p99p100_992_j", "sptinc_p99p100_992_i"],
+      variableCode: "sptinc_p99p100_992_i",
+      indicator: "sptinc",
+      description: "WID series sptinc_p99p100_992_i",
+      unitHint: "See WID metadata"
+    };
+    const client = {
+      getSeries: vi.fn(async () => ({
+        metric: fallbackMetric,
+        country: "BR",
+        fallback: {
+          requestedVariableCode: "sptinc_p99p100_992_j",
+          selectedVariableCode: "sptinc_p99p100_992_i",
+          reason: "no_rows_for_requested_window" as const,
+          changedDimensions: ["population"],
+          message:
+            "Requested variable sptinc_p99p100_992_j returned no rows for the requested window. Fetched sptinc_p99p100_992_i instead because it keeps the same indicator and percentile."
+        },
+        data: { ...page([fallbackRow]), rows: [fallbackRow] },
+        metadata: []
+      }))
+    };
+    const handlers = createWidToolHandlers(client);
+
+    const result = await handlers.wid_get_series({
+      country: "Brazil",
+      metric: "sptinc_p99p100_992_j",
+      start_year: 1980
+    });
+
+    expect(result.structuredContent.fallback).toMatchObject({
+      requestedVariableCode: "sptinc_p99p100_992_j",
+      selectedVariableCode: "sptinc_p99p100_992_i",
+      changedDimensions: ["population"]
+    });
+    expect(result.content[0].text).toContain("Fallback");
+    expect(result.content[0].text).toContain("sptinc_p99p100_992_j");
+    expect(result.content[0].text).toContain("sptinc_p99p100_992_i");
+  });
+
   it("fetches exact WID variable codes", async () => {
     const client = {
       fetchData: vi.fn(async () => ({ ...page([dataRow]), rows: [dataRow] }))

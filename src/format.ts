@@ -5,7 +5,8 @@ import type {
   PaginatedResult,
   WidAvailableVariable,
   WidDataRow,
-  WidMetadataRecord
+  WidMetadataRecord,
+  WidSeriesFallback
 } from "./types.js";
 
 export type ResponseFormat = "markdown" | "json";
@@ -39,6 +40,7 @@ export function formatSeriesMarkdown(input: {
   country: string;
   metric: MetricDefinition;
   resolution?: MetricResolveResult;
+  fallback?: WidSeriesFallback;
   rows: WidDataRow[];
   metadata: WidMetadataRecord[];
   pagination: Pick<PaginatedResult<WidDataRow>, "total" | "count" | "hasMore" | "nextOffset">;
@@ -53,6 +55,16 @@ export function formatSeriesMarkdown(input: {
     `Rows returned: ${input.pagination.count} of ${input.pagination.total}`,
     ""
   ];
+
+  if (input.fallback) {
+    lines.push(`Fallback: ${input.fallback.message}`);
+    if (input.fallback.changedDimensions.length > 0) {
+      lines.push(
+        `Changed dimensions: ${input.fallback.changedDimensions.join(", ")}`
+      );
+    }
+    lines.push("");
+  }
 
   if (input.metadata.length > 0) {
     const first = input.metadata[0];

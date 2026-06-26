@@ -238,6 +238,119 @@ describe("WID client helpers", () => {
     expect((init.headers as Record<string, string>)["x-api-key"]).toBe("abc123");
   });
 
+  it("falls back to a same-concept API variable when the requested combo has no rows", async () => {
+    const fetchMock = vi.fn(async (url: string) => {
+      if (
+        url.includes("/countries-variables?") &&
+        url.includes("variables=sptinc_p99p100_992_j")
+      ) {
+        return new Response(
+          JSON.stringify({
+            sptinc_p99p100_992_j: [
+              {
+                BR: {
+                  meta: { unit: "fraction" },
+                  values: []
+                }
+              }
+            ]
+          }),
+          { status: 200, headers: { "content-type": "application/json" } }
+        );
+      }
+
+      if (url.includes("/countries-available-variables?")) {
+        return new Response(
+          JSON.stringify({
+            sptinc: {
+              BR: [
+                ["p99p100", "992", "j"],
+                ["p99p100", "992", "i"],
+                ["p90p100", "992", "j"]
+              ]
+            }
+          }),
+          { status: 200, headers: { "content-type": "application/json" } }
+        );
+      }
+
+      if (
+        url.includes("/countries-variables?") &&
+        url.includes("variables=sptinc_p99p100_992_i")
+      ) {
+        return new Response(
+          JSON.stringify({
+            sptinc_p99p100_992_i: [
+              {
+                BR: {
+                  meta: { unit: "fraction" },
+                  values: [{ y: 1980, v: 0.16 }]
+                }
+              }
+            ]
+          }),
+          { status: 200, headers: { "content-type": "application/json" } }
+        );
+      }
+
+      if (url.includes("/countries-variables-metadata?")) {
+        return new Response(
+          JSON.stringify([
+            {
+              metadata_func: [
+                {
+                  sptinc_p99p100_992_i: [
+                    {
+                      name: {
+                        shortname: "Top 1% pretax national income share"
+                      }
+                    },
+                    { type: { shortdes: "fraction" } },
+                    { pop: { shortdes: "individuals" } },
+                    { age: { shortname: "Adults" } },
+                    {
+                      units: [
+                        {
+                          country_name: "Brazil",
+                          country: "BR",
+                          metadata: { unit: "fraction" }
+                        }
+                      ]
+                    },
+                    { notes: [] }
+                  ]
+                }
+              ]
+            }
+          ]),
+          { status: 200, headers: { "content-type": "application/json" } }
+        );
+      }
+
+      throw new Error(`Unexpected URL: ${url}`);
+    });
+    const client = new WidClient({
+      apiKeyBase64: "abc123",
+      fetchFn: fetchMock,
+      cacheTtlMs: 0
+    });
+
+    const result = await client.getSeries({
+      country: "Brazil",
+      metric: "sptinc_p99p100_992_j",
+      startYear: 1980
+    });
+
+    expect(result.metric.variableCode).toBe("sptinc_p99p100_992_i");
+    expect(result.data.rows[0].variableCode).toBe("sptinc_p99p100_992_i");
+    expect(result.fallback).toMatchObject({
+      requestedVariableCode: "sptinc_p99p100_992_j",
+      selectedVariableCode: "sptinc_p99p100_992_i",
+      reason: "no_rows_for_requested_window",
+      changedDimensions: ["population"]
+    });
+  });
+
   it("searches natural-language metrics through availability and metadata endpoints", async () => {
     const fetchMock = vi.fn(async (url: string) => {
       if (url.includes("/countries-available-variables?")) {

@@ -95,6 +95,8 @@ For example, `sptinc_p99p100_992_j` means:
 
 The server uses WID's public code structure as a dictionary, then verifies possible variables against live WID availability for the requested country. It fetches metadata only for the best candidates, so it does not download or store the WID dataset.
 
+If `wid_get_series` resolves or receives a specific variable code but that exact combo returns no rows for the requested year window, it tries the nearest available same-concept variables. Same-concept fallback means the indicator and percentile stay the same, while age or population unit may vary. The response includes a `fallback` object explaining the requested code, selected code, and changed dimensions. The server does not silently switch to a different indicator or percentile.
+
 ## Context and Clarification
 
 The MCP server does not automatically see the full chat history. The AI client should pass a short `context` string when the user's metric is broad.

@@ -310,4 +310,114 @@ describe("R WID client", () => {
       variable_codes: ["sptinc_p99p100_992_j"]
     });
   });
+
+  it("falls back to the nearest same-concept variable when the selected combo has no rows", async () => {
+    const runRScript = vi.fn(async (_script, inputJson) => {
+      const input = JSON.parse(inputJson);
+      if (input.action === "available_variables") {
+        return JSON.stringify({
+          items: [
+            {
+              indicator: "sptinc",
+              country: "BR",
+              percentile: "p99p100",
+              age: "992",
+              population: "j",
+              variableCode: "sptinc_p99p100_992_j"
+            },
+            {
+              indicator: "sptinc",
+              country: "BR",
+              percentile: "p99p100",
+              age: "992",
+              population: "i",
+              variableCode: "sptinc_p99p100_992_i"
+            },
+            {
+              indicator: "sptinc",
+              country: "BR",
+              percentile: "p90p100",
+              age: "992",
+              population: "j",
+              variableCode: "sptinc_p90p100_992_j"
+            }
+          ]
+        });
+      }
+      if (input.action === "metadata") {
+        return JSON.stringify({
+          metadata: [
+            {
+              country: "BR",
+              countryname: "Brazil",
+              variable_code: "sptinc_p99p100_992_j",
+              shortname: "Top 1% pretax national income share"
+            },
+            {
+              country: "BR",
+              countryname: "Brazil",
+              variable_code: "sptinc_p99p100_992_i",
+              shortname: "Top 1% pretax national income share"
+            }
+          ]
+        });
+      }
+      if (input.action === "download") {
+        const [variableCode] = input.variable_codes;
+        if (variableCode === "sptinc_p99p100_992_j") {
+          return JSON.stringify({ rows: [], metadata: [] });
+        }
+        if (variableCode === "sptinc_p99p100_992_i") {
+          return JSON.stringify({
+            rows: [
+              {
+                country: "BR",
+                variable_code: "sptinc_p99p100_992_i",
+                indicator: "sptinc",
+                percentile: "p99p100",
+                age_code: "992",
+                pop_code: "i",
+                year: 1980,
+                value: 0.16,
+                unit: "fraction",
+                is_extrapolated: false
+              }
+            ],
+            metadata: [
+              {
+                country: "BR",
+                countryname: "Brazil",
+                variable_code: "sptinc_p99p100_992_i",
+                shortname: "Top 1% pretax national income share"
+              }
+            ]
+          });
+        }
+      }
+      throw new Error(`Unexpected action: ${input.action}`);
+    });
+    const client = new RwidClient({ runRScript });
+
+    const result = await client.getSeries({
+      country: "Brazil",
+      metric: "sptinc_p99p100_992_j",
+      startYear: 1980
+    });
+
+    expect(result.metric.variableCode).toBe("sptinc_p99p100_992_i");
+    expect(result.data.rows[0].variableCode).toBe("sptinc_p99p100_992_i");
+    expect(result.fallback).toMatchObject({
+      requestedVariableCode: "sptinc_p99p100_992_j",
+      selectedVariableCode: "sptinc_p99p100_992_i",
+      reason: "no_rows_for_requested_window",
+      changedDimensions: ["population"]
+    });
+    const downloadCalls = runRScript.mock.calls
+      .map(([, inputJson]) => JSON.parse(inputJson))
+      .filter((input) => input.action === "download");
+    expect(downloadCalls.map((input) => input.variable_codes[0])).toEqual([
+      "sptinc_p99p100_992_j",
+      "sptinc_p99p100_992_i"
+    ]);
+  });
 });

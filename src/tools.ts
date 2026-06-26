@@ -216,7 +216,8 @@ export function createWidToolHandlers(client: Partial<WidDataProvider>) {
         nextOffset: result.data.nextOffset,
         rows: result.data.rows,
         metadata: result.metadata,
-        resolution: result.resolution
+        resolution: result.resolution,
+        fallback: result.fallback
       };
 
       return makeToolResponse(
@@ -225,6 +226,7 @@ export function createWidToolHandlers(client: Partial<WidDataProvider>) {
           country: result.country,
           metric: result.metric,
           resolution: result.resolution,
+          fallback: result.fallback,
           rows: result.data.rows,
           metadata: result.metadata,
           pagination: result.data

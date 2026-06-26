@@ -11,6 +11,16 @@ export interface WidDataRow {
   isExtrapolated: boolean;
 }
 
+export type WidSeriesFallbackReason = "no_rows_for_requested_window";
+
+export interface WidSeriesFallback {
+  requestedVariableCode: string;
+  selectedVariableCode: string;
+  reason: WidSeriesFallbackReason;
+  changedDimensions: string[];
+  message: string;
+}
+
 export interface WidMetadataRecord {
   variableCode: string;
   country: string;
@@ -148,6 +158,7 @@ export interface GetSeriesInput {
 export interface WidSeriesResult {
   metric: MetricDefinition;
   resolution?: MetricResolveResult;
+  fallback?: WidSeriesFallback;
   country: string;
   data: PaginatedResult<WidDataRow> & { rows: WidDataRow[] };
   metadata: WidMetadataRecord[];
