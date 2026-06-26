@@ -9,7 +9,7 @@ This server does **not** bundle or redistribute the WID dataset. It is a small a
 By default, the server uses the official WID R package:
 
 ```text
-AI client -> this MCP -> local R package `wid` -> WID data
+Client -> WID MCP -> local R package `wid` -> WID data
 ```
 
 That keeps this repo clean:
